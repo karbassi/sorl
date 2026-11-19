@@ -27,7 +27,7 @@ struct PanelRoot: View {
                 page(height: PanelStyle.playerHeight) { PlayerView().toasts(toasts, bottomInset: 60) }
                     .transition(pageTransition(from: .leading))
             } else {
-                page(height: nil) { MainView() }
+                page(height: nil) { NothingPlayingView().toasts(toasts) }
                     .transition(pageTransition(from: .leading))
             }
         }

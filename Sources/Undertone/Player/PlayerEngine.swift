@@ -71,6 +71,15 @@ final class PlayerEngine {
         return t.seconds
     }
 
+    /// What the player shows before anything loads (after a relaunch): the saved item's length.
+    var shownDuration: Double? { duration ?? (track == nil ? upNext.current?.duration : nil) }
+
+    /// The position to show: the live one, or the saved one for an item restored on relaunch.
+    var shownTime: Double {
+        guard track == nil, !isResolving, let current = upNext.current else { return currentTime }
+        return settings.positions.position(for: current.url)?.seconds ?? 0
+    }
+
     @ObservationIgnored let player = AVPlayer()
     @ObservationIgnored private let settings: AppSettings
     @ObservationIgnored private let service: YTDLPService
@@ -1041,8 +1050,9 @@ final class PlayerEngine {
         } else if repeatMode == .all {
             restartCurrentTrack()
         } else {
-            hasEnded = true
-            if let d = duration { currentTime = d }
+            // The last item finished: back to Nothing playing (F5). It moves to Played, so ⏮ can still go back.
+            upNext.finish()
+            stop()
         }
     }
 

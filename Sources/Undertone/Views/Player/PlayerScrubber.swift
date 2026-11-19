@@ -13,8 +13,8 @@ struct PlayerScrubber: View {
     private let inset: CGFloat = 13
 
     var body: some View {
-        let duration = engine.duration ?? 0
-        let shown = dragValue ?? min(engine.currentTime, max(duration, 0))
+        let duration = engine.shownDuration ?? 0
+        let shown = dragValue ?? min(engine.shownTime, max(duration, 0))
         let fraction = duration > 0 ? min(1, max(0, shown / duration)) : 0
         VStack(spacing: 4) {
             GeometryReader { proxy in
@@ -52,7 +52,7 @@ struct PlayerScrubber: View {
                     })
             }
             .frame(height: 24)
-            .disabled(duration <= 0 || engine.isResolving)
+            .disabled(duration <= 0 || engine.isResolving || engine.track == nil)
             .accessibilityElement()
             .accessibilityLabel("Playback position")
             .accessibilityValue(accessibilityValue(shown: shown, duration: duration))

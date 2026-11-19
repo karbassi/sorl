@@ -110,13 +110,14 @@ enum DemoFixtures {
     }
 
     /// G8: Today, Yesterday, Earlier this week, Last week, with the thumbnail bars.
-    static func recent(now: Date = Date()) -> (store: RecentLinksStore, positions: [String: SavedPosition]) {
+    /// F5 shows "no vocals deep house mix" and "Late night deep house" on top (`pickUp`).
+    static func recent(now: Date = Date(), pickUp: Bool = false) -> (store: RecentLinksStore, positions: [String: SavedPosition]) {
         let cal = Calendar.current
         func daysAgo(_ d: Int) -> Date { cal.date(byAdding: .day, value: -d, to: now)! }
         let week = cal.component(.weekday, from: now)
         let daysIntoWeek = (week - cal.firstWeekday + 7) % 7
         let earlierThisWeek = daysIntoWeek >= 2 ? daysAgo(2) : daysAgo(1)
-        let rows: [((url: URL, title: String, kind: LinkKind, duration: Double?, count: Int?), Date, Double?, Bool)] = [
+        var rows: [((url: URL, title: String, kind: LinkKind, duration: Double?, count: Int?), Date, Double?, Bool)] = [
             (link("Brothers Vibe - Guy J", kind: .video, "2:31:24"), now, 923, false),
             (link("How the transistor changed everything", kind: .video, "1:48:10"), now.addingTimeInterval(-3600), 0.62, false),
             (link("Late night deep house", kind: .mix, "50 videos"), daysAgo(1), 0.12, false),
@@ -127,6 +128,11 @@ enum DemoFixtures {
             (link("Rainy day jazz", kind: .playlist, "64 videos"), daysAgo(daysIntoWeek + 3), 0.2, false),
             (link("Harbor lights, live", kind: .video, "1:33:12"), daysAgo(daysIntoWeek + 4), 0.7, false),
         ]
+        if pickUp {
+            rows = [(link("no vocals deep house mix", kind: .video, "2:31:24"), now.addingTimeInterval(60), 0.09, false),
+                    (link("Late night deep house", kind: .mix, "50 videos"), now.addingTimeInterval(30), 0.12, false)]
+                + rows.filter { $0.0.title != "Late night deep house" }
+        }
         var store = RecentLinksStore()
         var positions: [String: SavedPosition] = [:]
         for (row, date, progress, finished) in rows.reversed() {

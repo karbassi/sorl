@@ -45,6 +45,8 @@ struct ListRow: View {
     var isDragging = false
     /// Briefly marked after being added (G3).
     var isHighlighted = false
+    /// F5's rows are a little roomier: 44pt, 8pt side padding, a 12pt gap.
+    var roomy = false
 
     @State private var hovering = false
     @FocusState private var focused: Bool
@@ -55,7 +57,7 @@ struct ListRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: roomy ? 12 : 10) {
             thumbnailView
             Text(title)
                 .font(isCurrent ? PanelStyle.title : PanelStyle.row)
@@ -65,9 +67,9 @@ struct ListRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             trailingView
         }
-        .padding(.vertical, 5)
-        .padding(.horizontal, 6)
-        .frame(height: PanelStyle.rowHeight)
+        .padding(.vertical, roomy ? 6 : 5)
+        .padding(.horizontal, roomy ? 8 : 6)
+        .frame(height: roomy ? 44 : PanelStyle.rowHeight)
         .background(background, in: .rect(cornerRadius: PanelStyle.rowRadius))
         .shadow(color: .black.opacity(isDragging ? 0.18 : 0), radius: 9, y: 6)
         .overlay {

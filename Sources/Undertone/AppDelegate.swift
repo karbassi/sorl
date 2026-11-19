@@ -109,7 +109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings.enterDemoMode()
         let demo = DemoFixtures.state(for: screen)
         settings.saved = DemoFixtures.saved
-        let recent = DemoFixtures.recent()
+        let recent = DemoFixtures.recent(pickUp: screen == .f5 || screen == .f7f5)
         settings.recent = recent.store
         settings.positions = PlaybackPositions(entries: recent.positions)
         settings.speed = .normal
