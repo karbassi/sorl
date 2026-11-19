@@ -102,21 +102,6 @@ final class PanelState {
             controller?.pageTransitionEnded()
         }
     }
-
-    /// Offers whatever link is on the clipboard, unless it is what is already playing.
-    func prefillFromClipboard(currentLink: String?) {
-        guard let raw = NSPasteboard.general.string(forType: .string) else { return }
-        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Offer the clipboard only when it *is* a link, not when it merely contains one — otherwise a
-        // shell command or paragraph with a URL inside it would land in the field. A bare URL has no
-        // spaces and no line breaks; anything else is left for the explicit Paste & Play button.
-        guard !text.isEmpty, text.count <= 400,
-              !text.contains(where: { $0 == " " || $0.isNewline || $0 == "\t" }),
-              let link = LinkParser.parse(text), link.isYouTube,
-              link.original.absoluteString != currentLink
-        else { return }
-        urlText = text
-    }
 }
 
 /// The link F6 asks about, with what is known of it so far.
@@ -239,8 +224,8 @@ final class PanelController {
             transaction.disablesAnimations = true
             withTransaction(transaction) { state.showingSettings = showSettings }
         }
-        state.prefillFromClipboard(currentLink: settings.lastLink)
-        if !state.urlText.isEmpty { engine.warm(state.urlText) }
+        // A link on the clipboard is resolved in the background, so ⌘V or Play plays it at once.
+        if let link = Self.clipboardLink() { engine.warm(link) }
         state.showCount += 1
         cancelFrameAnimation()
         position(relativeTo: button)
