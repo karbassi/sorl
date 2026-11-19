@@ -53,6 +53,8 @@ final class PanelState {
     var highlightedItem: QueueItem.ID?
     /// Focus the paste field once the drawer appears.
     var pendingPasteFocus = false
+    /// A Settings shortcut chip is listening for keys; the panel's own keys stand aside.
+    var recordingShortcut = false
     /// The F6 card on the player: what should this link do?
     var pastePrompt: PastePrompt?
     /// A ⌘V (mode nil: decided by where you are) or an F6 choice, for `PasteRouter` to carry out.
@@ -555,7 +557,7 @@ final class PanelController {
     /// Esc goes back from Settings, else closes; Space plays/pauses; ←/→ skip 15 s; ↑/↓ change volume; ⌘Q quits;
     /// ⌘V/⌘C/⌘X/⌘A/⌘Z reach the focused text field even though the app is not active.
     private func handleKey(_ event: NSEvent) -> NSEvent? {
-        guard event.window == panel else { return event }
+        guard event.window == panel, !state.recordingShortcut else { return event }
         // Esc steps back one level: Settings, then the drawer, then the panel.
         if let prompt = state.pastePrompt, !state.showingSettings, !state.drawerOpen {
             if event.keyCode == 53 { state.pastePrompt = nil; return nil }
@@ -598,6 +600,11 @@ final class PanelController {
         guard flags == .command || flags == [.command, .shift], let key = event.charactersIgnoringModifiers?.lowercased() else { return event }
         if key == "q" && flags == .command {
             NSApp.terminate(nil)
+            return nil
+        }
+        // ⌘, opens Settings, and closes it again.
+        if key == "," && flags == .command {
+            state.showSettings(!state.showingSettings)
             return nil
         }
         if isRecorderFocused { return event }

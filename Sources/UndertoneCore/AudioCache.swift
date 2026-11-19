@@ -32,9 +32,15 @@ public struct AudioCache: Sendable {
     }
 
     /// `~/Library/Caches/<bundle id>/Audio`.
-    public static func standard(bundleIdentifier: String?) -> AudioCache {
+    public static func standard(bundleIdentifier: String?, capacity: Int64 = defaultCapacity) -> AudioCache {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        return AudioCache(directory: caches.appending(path: bundleIdentifier ?? "com.jverissimo.undertone").appending(path: "Audio"))
+        return AudioCache(directory: caches.appending(path: bundleIdentifier ?? "com.jverissimo.undertone").appending(path: "Audio"),
+                          capacity: capacity)
+    }
+
+    /// The same directory with another cap (the "Keep up to" setting).
+    public func withCapacity(_ capacity: Int64) -> AudioCache {
+        AudioCache(directory: directory, capacity: capacity)
     }
 
     /// Larger files are not worth caching: a quarter of the cap (500 MB of a 2 GB cap is about eight and a half hours of audio).

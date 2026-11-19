@@ -99,6 +99,9 @@ final class StatusItemController: NSObject {
         let open = NSMenuItem(title: "Open Undertone", action: #selector(openPanel), keyEquivalent: "")
         open.target = self
         menu.addItem(open)
+        let settingsItem = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+        settingsItem.target = self
+        menu.addItem(settingsItem)
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit Undertone", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
 
@@ -111,6 +114,7 @@ final class StatusItemController: NSObject {
     @objc private func nextTrack() { engine.next() }
     @objc private func previousTrack() { engine.previous() }
     @objc private func openPanel() { panel.show() }
+    @objc private func openSettings() { panel.show(settings: true) }
 
     private func observe() {
         withObservationTracking {

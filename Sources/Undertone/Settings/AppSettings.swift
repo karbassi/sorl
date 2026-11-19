@@ -27,6 +27,7 @@ final class AppSettings {
         static let positions = "playbackPositions"
         static let upNext = "upNext"
         static let showTotalTime = "showTotalTime"
+        static let downloadsLimit = "downloadsLimitGB"
     }
 
     @ObservationIgnored private var defaults: UserDefaults
@@ -54,6 +55,14 @@ final class AppSettings {
         positions = PlaybackPositions(decoding: defaults.data(forKey: Keys.positions) ?? Data())
         upNext = UpNext(decoding: defaults.data(forKey: Keys.upNext) ?? Data())
         showTotalTime = defaults.bool(forKey: Keys.showTotalTime)
+        let limit = defaults.integer(forKey: Keys.downloadsLimit)
+        downloadsLimitGB = Self.downloadsLimits.contains(limit) ? limit : 2
+    }
+
+    /// "Keep up to" in Settings: 1, 2, 5 or 10 GB of downloads (default 2).
+    static let downloadsLimits = [1, 2, 5, 10]
+    var downloadsLimitGB: Int {
+        didSet { defaults.set(downloadsLimitGB, forKey: Keys.downloadsLimit) }
     }
 
     /// The player's time toggle: total time instead of time left. Remembered across videos and relaunches.

@@ -119,7 +119,7 @@ final class PlayerEngine {
     /// still reads the old time (or 0), so this stands in for it.
     @ObservationIgnored private var pendingSeekTarget: Double?
     @ObservationIgnored private var seekCount = 0
-    @ObservationIgnored let audioCache = AudioCache.standard(bundleIdentifier: Bundle.main.bundleIdentifier)
+    @ObservationIgnored private(set) var audioCache: AudioCache
     /// The background download filling `audioCache` for `downloadKey` (only ever the loaded track).
     @ObservationIgnored private var downloadTask: Task<Void, Never>?
     @ObservationIgnored private var downloadKey: String?
@@ -141,6 +141,8 @@ final class PlayerEngine {
     init(settings: AppSettings, service: YTDLPService) {
         self.settings = settings
         self.service = service
+        audioCache = AudioCache.standard(bundleIdentifier: Bundle.main.bundleIdentifier,
+                                         capacity: Int64(settings.downloadsLimitGB) * 1_000_000_000)
         speed = settings.speed
         upNext = settings.upNext
         repeatMode = settings.repeatMode
@@ -193,6 +195,22 @@ final class PlayerEngine {
             self.audioCacheBytes = bytes
             self.downloadedKeys = keys
         }
+    }
+
+    /// "Keep up to": a new cap for downloads. Lowering it below what's used removes the oldest downloads (never the
+    /// one playing). Returns whether anything had to go.
+    @discardableResult
+    func setDownloadsLimit(_ gigabytes: Int) -> Bool {
+        settings.downloadsLimitGB = gigabytes
+        audioCache = audioCache.withCapacity(Int64(gigabytes) * 1_000_000_000)
+        guard audioCacheBytes > audioCache.capacity else { return false }
+        let cache = audioCache
+        let keep = currentLink?.cacheKey
+        Task { [weak self] in
+            await Task.detached { cache.evict(keeping: keep) }.value
+            self?.refreshAudioCacheSize()
+        }
+        return true
     }
 
     /// Empties the audio cache. A track playing from it keeps playing: the open file outlives its directory entry.
