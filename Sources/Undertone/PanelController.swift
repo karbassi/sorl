@@ -19,35 +19,105 @@ final class PanelState {
     var showCount = 0
     /// The tallest the content may be on the current screen; taller pages scroll inside the panel.
     var maxContentHeight: CGFloat = .infinity
+    /// The demo harness screen on show (`undertone://demo`), or nil for the real panel.
+    var demoScreen: DemoFixtures.Screen?
+    /// Forces hover on, for screenshots of hover states: "player" or a row's title.
+    var forcedHover: String?
+    /// A toast for the demo harness to show (message, action title).
+    var demoToast: (message: String, action: String?, id: UUID)?
     @ObservationIgnored weak var controller: PanelController?
+
+    /// The drawer's tabs.
+    enum Tab: String, CaseIterable, Identifiable {
+        case upNext = "up-next", saved, recent
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .upNext: return "Up next"
+            case .saved: return "Saved"
+            case .recent: return "Recent"
+            }
+        }
+    }
+
+    /// The drawer (mini player + tabs) is open over the player.
+    var drawerOpen = false
+    var tab: Tab = .upNext
+    /// Bumped to focus Up next's paste field (the + on the Up next bar).
+    var focusPasteField = 0
+    /// "Played (n)" expanded in Up next.
+    var playedExpanded = false
+    /// Up next was emptied with Clear (G4's copy), until something is queued again.
+    var queueCleared = false
+    /// The row just added, marked briefly (G3).
+    var highlightedItem: QueueItem.ID?
+    /// Focus the paste field once the drawer appears.
+    var pendingPasteFocus = false
+    /// A Settings shortcut chip is listening for keys; the panel's own keys stand aside.
+    var recordingShortcut = false
+    /// The F6 card on the player: what should this link do?
+    var pastePrompt: PastePrompt?
+    /// A ⌘V (mode nil: decided by where you are) or an F6 choice, for `PasteRouter` to carry out.
+    var pasteRequest: PasteRequest?
+    @ObservationIgnored private var highlightTask: Task<Void, Never>?
+
+    func highlight(_ id: QueueItem.ID?) {
+        highlightedItem = id
+        highlightTask?.cancel()
+        highlightTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2.5))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.3)) { self?.highlightedItem = nil }
+        }
+    }
+
+    /// The + on the Up next bar: opens the drawer on Up next with the paste field focused.
+    func openPasteField() {
+        pendingPasteFocus = true
+        setDrawer(true, tab: .upNext)
+        tab = .upNext
+        focusPasteField += 1
+    }
 
     func hide() { controller?.hide() }
 
     /// Switches pages with the slide, telling the controller when the exiting page is really gone.
     func showSettings(_ flag: Bool) {
         guard flag != showingSettings else { return }
+        transition { showingSettings = flag }
+    }
+
+    /// Opens or closes the drawer; it grows the panel to the drawer height.
+    func setDrawer(_ open: Bool, tab: Tab? = nil) {
+        if let tab { self.tab = tab }
+        guard open != drawerOpen else { return }
+        transition { drawerOpen = open }
+    }
+
+    private func transition(_ change: () -> Void) {
         controller?.pageTransitionWillStart()
         withAnimation(.snappy(duration: PanelController.pageTransition), completionCriteria: .removed) {
-            showingSettings = flag
+            change()
         } completion: { [weak controller] in
             controller?.pageTransitionEnded()
         }
     }
+}
 
-    /// Offers whatever link is on the clipboard, unless it is what is already playing.
-    func prefillFromClipboard(currentLink: String?) {
-        guard let raw = NSPasteboard.general.string(forType: .string) else { return }
-        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Offer the clipboard only when it *is* a link, not when it merely contains one — otherwise a
-        // shell command or paragraph with a URL inside it would land in the field. A bare URL has no
-        // spaces and no line breaks; anything else is left for the explicit Paste & Play button.
-        guard !text.isEmpty, text.count <= 400,
-              !text.contains(where: { $0 == " " || $0.isNewline || $0 == "\t" }),
-              let link = LinkParser.parse(text), link.isYouTube,
-              link.original.absoluteString != currentLink
-        else { return }
-        urlText = text
-    }
+/// The link F6 asks about, with what is known of it so far.
+struct PastePrompt: Equatable, Identifiable {
+    let id = UUID()
+    let text: String
+    let kind: LinkKind
+    var videoID: String?
+    var title: String?
+    var duration: Double?
+}
+
+struct PasteRequest: Equatable {
+    let id = UUID()
+    let text: String
+    let mode: PlayerEngine.OpenMode?
 }
 
 final class PanelController {
@@ -142,7 +212,7 @@ final class PanelController {
     }
 
     func show(settings showSettings: Bool = false) {
-        guard let button = statusButton else { return }
+        let button = statusButton ?? NSStatusBarButton()
         let wasVisible = isVisible
         isVisible = true
         rebuildBackdrop()   // works around a stale-glass bug seen on 26.2
@@ -154,8 +224,8 @@ final class PanelController {
             transaction.disablesAnimations = true
             withTransaction(transaction) { state.showingSettings = showSettings }
         }
-        state.prefillFromClipboard(currentLink: settings.lastLink)
-        if !state.urlText.isEmpty { engine.warm(state.urlText) }
+        // A link on the clipboard is resolved in the background, so ⌘V or Play plays it at once.
+        if let link = Self.clipboardLink() { engine.warm(link) }
         state.showCount += 1
         cancelFrameAnimation()
         position(relativeTo: button)
@@ -171,6 +241,51 @@ final class PanelController {
         }
         installMonitors()
         engine.setProgressTracking(true)
+    }
+
+    /// Shows the panel on a demo harness screen.
+    func showDemo(_ screen: DemoFixtures.Screen, hover: String?) {
+        state.demoScreen = screen
+        state.forcedHover = hover
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            switch screen {
+            case .f2, .g1, .g2, .g3, .g4, .g5, .g6, .g9, .f7drawer: state.drawerOpen = true; state.tab = .upNext
+            case .g7: state.drawerOpen = true; state.tab = .saved
+            case .g8: state.drawerOpen = true; state.tab = .recent
+            default: state.drawerOpen = false
+            }
+            state.playedExpanded = false
+            state.pastePrompt = screen == .f6 ? DemoFixtures.pastePrompt : nil
+            state.queueCleared = screen == .g4
+            state.highlightedItem = nil
+        }
+        if screen == .g3 { state.highlight(engine.upNext.upcoming.last?.id) }
+        let toast: (String, String?)? = switch screen {
+        case .g3: ("Added to the end", "Play next instead")
+        case .g4: ("Cleared 21 from up next", "Undo")
+        case .g6: ("Replaced 21 in up next", "Undo")
+        default: nil
+        }
+        state.demoToast = toast.map { ($0.0, $0.1, UUID()) }
+        show(settings: screen == .s1 || screen == .s1problem)
+    }
+
+    /// The clipboard, when it holds exactly one link (no spaces or line breaks).
+    static func clipboardLink() -> String? {
+        guard let raw = NSPasteboard.general.string(forType: .string) else { return nil }
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, text.count <= 400, !text.contains(where: { $0 == " " || $0.isNewline || $0 == "\t" }),
+              LinkParser.parse(text) != nil else { return nil }
+        return text
+    }
+
+    /// `undertone://drawer?tab=saved`: opens the drawer on a tab.
+    func showDrawer(tab: PanelState.Tab) {
+        if !isVisible { show() }
+        state.setDrawer(true, tab: tab)
+        state.tab = tab
     }
 
     func hide() {
@@ -278,9 +393,18 @@ final class PanelController {
     }
 
     private func targetFrame(relativeTo button: NSStatusBarButton) -> NSRect? {
-        guard let window = button.window else { return nil }
-        let buttonRect = window.convertToScreen(button.convert(button.bounds, to: nil))
-        guard let screen = Self.screen(nearest: buttonRect) ?? window.screen ?? NSScreen.main else { return nil }
+        // A status item hidden by a crowded menu bar (or a menu bar manager) has no window or sits off every screen.
+        // The panel then opens at the top right of the main screen instead of off-screen.
+        var buttonRect = NSRect.null
+        if let window = button.window, window.isVisible {
+            buttonRect = window.convertToScreen(button.convert(button.bounds, to: nil))
+        }
+        if buttonRect.isNull || !NSScreen.screens.contains(where: { $0.frame.intersects(buttonRect) }) {
+            guard let main = NSScreen.main ?? NSScreen.screens.first else { return nil }
+            let width = PanelStyle.width
+            buttonRect = NSRect(x: main.visibleFrame.maxX - width / 2 - 8, y: main.frame.maxY - 1, width: 1, height: 1)
+        }
+        guard let screen = Self.screen(nearest: buttonRect) ?? NSScreen.main else { return nil }
         let visible = screen.visibleFrame
         let margin: CGFloat = 8
         let gap: CGFloat = 6
@@ -418,9 +542,24 @@ final class PanelController {
     /// Esc goes back from Settings, else closes; Space plays/pauses; ←/→ skip 15 s; ↑/↓ change volume; ⌘Q quits;
     /// ⌘V/⌘C/⌘X/⌘A/⌘Z reach the focused text field even though the app is not active.
     private func handleKey(_ event: NSEvent) -> NSEvent? {
-        guard event.window == panel else { return event }
+        guard event.window == panel, !state.recordingShortcut else { return event }
+        // Esc steps back one level: Settings, then the drawer, then the panel.
+        if let prompt = state.pastePrompt, !state.showingSettings, !state.drawerOpen {
+            if event.keyCode == 53 { state.pastePrompt = nil; return nil }
+            if event.keyCode == 36 || event.keyCode == 76 {
+                state.pastePrompt = nil
+                state.pasteRequest = PasteRequest(text: prompt.text, mode: .playNow)
+                return nil
+            }
+        }
         if event.keyCode == 53 {
-            if state.showingSettings { state.showSettings(false) } else { hide() }
+            if state.showingSettings {
+                state.showSettings(false)
+            } else if state.drawerOpen {
+                state.setDrawer(false)
+            } else {
+                hide()
+            }
             return nil
         }
         // The playback keys never apply while typing in a text field, and stay off with Full Keyboard Access, where
@@ -448,6 +587,11 @@ final class PanelController {
             NSApp.terminate(nil)
             return nil
         }
+        // ⌘, opens Settings, and closes it again.
+        if key == "," && flags == .command {
+            state.showSettings(!state.showingSettings)
+            return nil
+        }
         if isRecorderFocused { return event }
         let selector: Selector? = switch (key, flags) {
         case ("v", .command): #selector(NSText.paste(_:))
@@ -459,6 +603,11 @@ final class PanelController {
         default: nil
         }
         guard let selector else { return event }
+        // ⌘V outside a text field: what a link does depends on where you are (see PasteRouter).
+        if key == "v", flags == .command, !(panel.firstResponder is NSTextView), let text = PanelController.clipboardLink() {
+            state.pasteRequest = PasteRequest(text: text, mode: nil)
+            return nil
+        }
         if panel.firstResponder?.tryToPerform(selector, with: nil) == true { return nil }
         return event
     }

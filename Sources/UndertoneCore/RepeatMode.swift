@@ -1,10 +1,10 @@
 public enum RepeatMode: String, CaseIterable, Sendable, Codable {
     case off, all, one
 
-    /// Off → All (only when there is a queue to repeat) → One → Off.
-    public func next(hasQueue: Bool) -> RepeatMode {
+    /// A click on the repeat button: off → all → one → off.
+    public var next: RepeatMode {
         switch self {
-        case .off: return hasQueue ? .all : .one
+        case .off: return .all
         case .all: return .one
         case .one: return .off
         }

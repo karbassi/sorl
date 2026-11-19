@@ -25,10 +25,14 @@ final class AppSettings {
         static let ytdlpProbedAt = "ytdlpProbedAt"
         static let idleUnloadSeconds = "idleUnloadSeconds"
         static let positions = "playbackPositions"
+        static let upNext = "upNext"
+        static let showTotalTime = "showTotalTime"
+        static let downloadsLimit = "downloadsLimitGB"
     }
 
-    @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private var defaults: UserDefaults
     @ObservationIgnored private var persistCacheTask: Task<Void, Never>?
+    @ObservationIgnored private var persistUpNextTask: Task<Void, Never>?
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -49,6 +53,52 @@ final class AppSettings {
         ytdlpProbedAt = defaults.object(forKey: Keys.ytdlpProbedAt) as? Date
         idleUnloadSeconds = defaults.object(forKey: Keys.idleUnloadSeconds) as? Double ?? 10 * 60
         positions = PlaybackPositions(decoding: defaults.data(forKey: Keys.positions) ?? Data())
+        upNext = UpNext(decoding: defaults.data(forKey: Keys.upNext) ?? Data())
+        showTotalTime = defaults.bool(forKey: Keys.showTotalTime)
+        let limit = defaults.integer(forKey: Keys.downloadsLimit)
+        downloadsLimitGB = Self.downloadsLimits.contains(limit) ? limit : 2
+    }
+
+    /// "Keep up to" in Settings: 1, 2, 5 or 10 GB of downloads (default 2).
+    static let downloadsLimits = [1, 2, 5, 10]
+    var downloadsLimitGB: Int {
+        didSet { defaults.set(downloadsLimitGB, forKey: Keys.downloadsLimit) }
+    }
+
+    /// The player's time toggle: total time instead of time left. Remembered across videos and relaunches.
+    var showTotalTime: Bool {
+        didSet { defaults.set(showTotalTime, forKey: Keys.showTotalTime) }
+    }
+
+    /// What's playing, Up next and Played, so the queue survives relaunch. Written on a short debounce (drags and
+    /// pastes come in bursts) and flushed on quit.
+    @ObservationIgnored var upNext: UpNext {
+        didSet {
+            guard upNext != oldValue else { return }
+            persistUpNextTask?.cancel()
+            persistUpNextTask = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(500))
+                guard let self, !Task.isCancelled else { return }
+                self.flushUpNext()
+            }
+        }
+    }
+
+    func flushUpNext() {
+        persistUpNextTask?.cancel()
+        defaults.set((try? upNext.encoded()) ?? Data(), forKey: Keys.upNext)
+    }
+
+    /// The demo harness (`undertone://demo`) is off unless `defaults write com.jverissimo.undertone demoHarness -bool YES`.
+    var demoHarnessEnabled: Bool { UserDefaults.standard.bool(forKey: "demoHarness") }
+
+    /// Demo fixtures must never overwrite real Saved, Recent or Up next: from here on every write goes to a
+    /// throwaway domain (until relaunch).
+    func enterDemoMode() {
+        guard let demo = UserDefaults(suiteName: "com.jverissimo.undertone.demo") else { return }
+        persistUpNextTask?.cancel()
+        persistCacheTask?.cancel()
+        defaults = demo
     }
 
     var speed: PlaybackSpeed {
@@ -70,11 +120,6 @@ final class AppSettings {
             guard positions != oldValue else { return }
             defaults.set((try? positions.encoded()) ?? Data(), forKey: Keys.positions)
         }
-    }
-
-    /// "Resume at 47:12 of 1:58:35" for a link whose mix was left partway; shown as a menu subtitle.
-    func resumeLabel(for url: URL) -> String? {
-        positions.position(for: url).map { "Resume at \(TimeFormat.clock($0.seconds)) of \(TimeFormat.clock($0.duration))" }
     }
 
     var ytdlpPathOverride: String? {

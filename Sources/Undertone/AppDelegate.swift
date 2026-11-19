@@ -35,7 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for url in queued { handle(url) }
     }
 
-    /// `undertone://play?url=…` `play` `pause` `toggle` `next` `previous` `seek?to=90` `speed?value=2`
+    /// `undertone://play?url=…` `add?url=…&mode=next|end` `clear` `drawer?tab=saved` `play` `pause` `toggle` `next` `previous` `seek?to=90` `speed?value=2`
     /// `volume?value=0.5` `mute` `repeat?mode=one` `save` `open` `settings` `close` `quit`
     func application(_ application: NSApplication, open urls: [URL]) {
         guard isReady else {
@@ -55,6 +55,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 engine.open(target)
             } else {
                 engine.play()
+            }
+        case "add":
+            // `add?url=…&mode=next|end`: queues a link without touching what's playing.
+            if let target = query.first(where: { $0.name == "url" })?.value, !target.isEmpty {
+                let next = query.first(where: { $0.name == "mode" })?.value == "next"
+                engine.open(target, mode: next ? .playNext : .addToEnd)
+            }
+        case "clear": engine.editQueue { $0.clear() }
+        case "paste":
+            // Same as ⌘V in the panel: the clipboard's link (or `url=`, for testing), handled for the page showing.
+            if let text = query.first(where: { $0.name == "url" })?.value ?? PanelController.clipboardLink() {
+                panel.show()
+                panel.state.pasteRequest = PasteRequest(text: text, mode: nil)
             }
         case "pause": engine.pause()
         case "toggle": engine.togglePlayPause()
@@ -78,6 +91,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 engine.cycleRepeatMode()
             }
         case "save": engine.toggleSavedTrack()
+        case "demo": showDemo(query)
+        case "drawer":
+            let raw = query.first(where: { $0.name == "tab" })?.value ?? PanelState.Tab.upNext.rawValue
+            panel.showDrawer(tab: PanelState.Tab(rawValue: raw) ?? .upNext)
         case "open": panel.show()
         case "settings": panel.show(settings: true)
         case "close": panel.hide()
@@ -86,8 +103,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// `undertone://demo?screen=g2&hover=<title>&appearance=light`: loads the design screens' fixtures (see `DemoFixtures`) and shows the
+    /// panel on that screen. Off unless the hidden `demoHarness` default is set; never touches real Saved/Recent/Up next.
+    private func showDemo(_ query: [URLQueryItem]) {
+        guard settings.demoHarnessEnabled else {
+            log.notice("demo harness is off (defaults write com.jverissimo.undertone demoHarness -bool YES)")
+            return
+        }
+        let raw = query.first(where: { $0.name == "screen" })?.value?.lowercased() ?? "f1"
+        guard let screen = DemoFixtures.Screen(rawValue: raw) else { return }
+        settings.enterDemoMode()
+        let demo = DemoFixtures.state(for: screen)
+        settings.saved = DemoFixtures.saved
+        let recent = DemoFixtures.recent(pickUp: screen == .f5 || screen == .f7f5)
+        settings.recent = recent.store
+        settings.positions = PlaybackPositions(entries: recent.positions)
+        settings.speed = .normal
+        engine.setSpeed(.normal)
+        engine.setRepeatMode(screen == .f1 || screen == .f1b || screen == .f6 || screen == .f7 ? .all : .off)
+        engine.loadDemo(track: demo.track, upNext: demo.upNext, position: demo.position, playing: demo.playing,
+                        downloaded: DemoFixtures.downloadedKeys, cacheBytes: 340 * 1_000_000)
+        if demo.playbackFailed { engine.showDemoFailure() }
+        service.simulate(demo.ytdlpBroken ? .outdated(YTDLPVersion(2025, 6, 30)) : .ready(YTDLPVersion(2026, 10, 22)))
+        // Screenshots in both modes without touching the system setting.
+        switch query.first(where: { $0.name == "appearance" })?.value {
+        case "light": NSApp.appearance = NSAppearance(named: .aqua)
+        case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
+        default: NSApp.appearance = nil
+        }
+        let hover = query.first(where: { $0.name == "hover" })?.value
+        panel.showDemo(screen, hover: hover)
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         engine.shutdown()
         settings.flushStreamCache()
+        settings.flushUpNext()
     }
 }

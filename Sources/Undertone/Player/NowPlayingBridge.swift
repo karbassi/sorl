@@ -67,7 +67,7 @@ final class NowPlayingBridge {
             _ = engine.isBuffering
             _ = engine.speed
             _ = engine.seekGeneration
-            _ = engine.queue?.index
+            _ = engine.upNext
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
@@ -93,10 +93,11 @@ final class NowPlayingBridge {
         // The subtitle line: in a DJ mix, the chapter (the song playing) rather than the channel.
         if let subtitle = engine.chapter?.title ?? track.channel { info[MPMediaItemPropertyArtist] = subtitle }
         if let duration = engine.duration, duration > 0 { info[MPMediaItemPropertyPlaybackDuration] = duration }
-        if let queue = engine.queue {
-            if let title = queue.title { info[MPMediaItemPropertyAlbumTitle] = title }
-            info[MPNowPlayingInfoPropertyPlaybackQueueIndex] = queue.index
-            info[MPNowPlayingInfoPropertyPlaybackQueueCount] = queue.count
+        let queue = engine.upNext
+        if !queue.isEmpty || !queue.played.isEmpty {
+            if let title = queue.headerSource { info[MPMediaItemPropertyAlbumTitle] = title }
+            info[MPNowPlayingInfoPropertyPlaybackQueueIndex] = queue.played.count
+            info[MPNowPlayingInfoPropertyPlaybackQueueCount] = queue.played.count + 1 + queue.upcoming.count
         }
         if let artwork, artworkTrackID == track.id {
             info[MPMediaItemPropertyArtwork] = artwork

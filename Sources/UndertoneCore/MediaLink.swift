@@ -194,3 +194,10 @@ public enum LinkParser {
         return nil
     }
 }
+
+extension MediaLink.Kind {
+    public var isMix: Bool {
+        if case .mix = self { return true }
+        return false
+    }
+}

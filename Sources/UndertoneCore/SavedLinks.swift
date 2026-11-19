@@ -5,12 +5,23 @@ public struct SavedLink: Codable, Equatable, Sendable, Identifiable {
     public let url: URL
     public var title: String
     public var savedAt: Date
+    /// Nil for entries saved before kinds were stored; `resolvedKind` infers it from the URL.
+    public var kind: LinkKind?
+    public var duration: Double?
+    /// Videos in a playlist or Mix.
+    public var count: Int?
 
-    public init(url: URL, title: String, savedAt: Date) {
+    public init(url: URL, title: String, savedAt: Date, kind: LinkKind? = nil, duration: Double? = nil, count: Int? = nil) {
         self.url = url
         self.title = title
         self.savedAt = savedAt
+        self.kind = kind
+        self.duration = duration
+        self.count = count
     }
+
+    public var resolvedKind: LinkKind { kind ?? .infer(from: url) }
+    public var trailingText: String? { LibraryTrailing.text(kind: resolvedKind, duration: duration, count: count) }
 }
 
 /// Links the user chose to keep, newest first. Unlike recents these never expire; only the user removes them.
@@ -39,9 +50,10 @@ public struct SavedLinksStore: Equatable, Sendable {
     }
 
     /// Saves (or re-saves, moving it to the front with a fresh title) a link.
-    public mutating func save(url: URL, title: String, date: Date = Date()) {
+    public mutating func save(url: URL, title: String, kind: LinkKind? = nil, duration: Double? = nil, count: Int? = nil,
+                              date: Date = Date()) {
         items.removeAll { $0.url == url }
-        items.insert(SavedLink(url: url, title: title, savedAt: date), at: 0)
+        items.insert(SavedLink(url: url, title: title, savedAt: date, kind: kind, duration: duration, count: count), at: 0)
         if items.count > Self.limit { items.removeLast(items.count - Self.limit) }
     }
 
@@ -51,12 +63,13 @@ public struct SavedLinksStore: Equatable, Sendable {
 
     /// Saves the link when it is not saved yet, removes it otherwise. Returns whether it is saved afterwards.
     @discardableResult
-    public mutating func toggle(url: URL, title: String, date: Date = Date()) -> Bool {
+    public mutating func toggle(url: URL, title: String, kind: LinkKind? = nil, duration: Double? = nil, count: Int? = nil,
+                                date: Date = Date()) -> Bool {
         if contains(url) {
             remove(url)
             return false
         }
-        save(url: url, title: title, date: date)
+        save(url: url, title: title, kind: kind, duration: duration, count: count, date: date)
         return true
     }
 }

@@ -1,21 +1,35 @@
 import SwiftUI
 import UndertoneCore
 
-/// The SwiftUI content of the panel. Transparent: the AppKit glass view behind it provides the surface.
+/// The SwiftUI content of the panel: one page at a time, each at a fixed height.
+///
+/// - Settings and the drawer are 560pt (less on a short screen).
+/// - The player is 304pt.
+/// - Nothing playing (F5) takes its natural height.
 struct PanelRoot: View {
     let engine: PlayerEngine
     let settings: AppSettings
     let service: YTDLPService
     let state: PanelState
+    @State private var toasts = ToastCenter()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack(alignment: .top) {
+            PanelStyle.panelBackground
             if state.showingSettings {
-                page { SettingsView() }
+                page(height: PanelStyle.drawerHeight) { SettingsView() }
                     .transition(pageTransition(from: .trailing))
+            } else if state.drawerOpen {
+                page(height: PanelStyle.drawerHeight) { DrawerPage() }
+                    .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+            } else if engine.track != nil || engine.isResolving || engine.upNext.current != nil {
+                page(height: PanelStyle.playerHeight + (ProblemBanner.isShowing(engine: engine, service: service) ? PanelStyle.bannerHeight + 8 : 0)) {
+                    PlayerView().toasts(toasts, bottomInset: 60)
+                }
+                    .transition(pageTransition(from: .leading))
             } else {
-                page { MainView() }
+                page(height: nil) { NothingPlayingView().toasts(toasts) }
                     .transition(pageTransition(from: .leading))
             }
         }
@@ -26,6 +40,28 @@ struct PanelRoot: View {
         .environment(settings)
         .environment(service)
         .environment(state)
+        .environment(toasts)
+        .environment(\.forcedHover, state.forcedHover)
+        .onChange(of: state.demoToast?.id) {
+            guard let toast = state.demoToast else { return }
+            toasts.show(toast.message, actionTitle: toast.action, action: toast.action == nil ? nil : {})
+        }
+        // One-off notices (a skipped video, no Mix found) are toasts.
+        .onChange(of: engine.notice) {
+            guard let notice = engine.notice else { return }
+            toasts.show(notice)
+            engine.clearNotice()
+        }
+        .onChange(of: state.pasteRequest) {
+            guard let request = state.pasteRequest else { return }
+            state.pasteRequest = nil
+            PasteRouter.handle(request, engine: engine, state: state, toasts: toasts)
+        }
+        .onChange(of: state.drawerOpen) {
+            if state.demoScreen == nil { toasts.dismiss() }   // the demo harness shows its toast with the drawer
+            if state.drawerOpen { state.pastePrompt = nil }
+        }
+        .onChange(of: state.showingSettings) { toasts.dismiss() }
     }
 
     /// Pages slide in from the side; with Reduce Motion they only cross-fade.
@@ -33,15 +69,25 @@ struct PanelRoot: View {
         reduceMotion ? .opacity : .move(edge: edge).combined(with: .opacity)
     }
 
-    /// A page takes its natural height up to what fits on the screen, scrolls beyond that, and reports its size.
-    private func page<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        ScrollView(.vertical) {
-            content().frame(width: PanelController.width)
+    /// A page at a fixed `height` (capped to what fits on the screen), or its natural height when nil. Reports its
+    /// size so the window follows.
+    @ViewBuilder
+    private func page<Content: View>(height: CGFloat?, @ViewBuilder _ content: () -> Content) -> some View {
+        Group {
+            if let height {
+                content()
+                    .frame(width: PanelStyle.width, height: min(height, state.maxContentHeight), alignment: .top)
+            } else {
+                ScrollView(.vertical) {
+                    content().frame(width: PanelStyle.width)
+                }
+                .scrollBounceBehavior(.basedOnSize)
+                .frame(width: PanelStyle.width)
+                .frame(maxHeight: state.maxContentHeight)
+                .fixedSize(horizontal: false, vertical: true)
+            }
         }
-        .scrollBounceBehavior(.basedOnSize)
-        .frame(width: PanelController.width)
-        .frame(maxHeight: state.maxContentHeight)
-        .fixedSize(horizontal: false, vertical: true)
+        .background(PanelStyle.panelBackground)
         .onGeometryChange(for: CGSize.self) { proxy in
             proxy.size
         } action: { size in

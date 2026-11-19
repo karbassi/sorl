@@ -64,11 +64,9 @@ import Testing
 
 @Suite struct RepeatModeTests {
     @Test func cyclesWithAndWithoutQueue() {
-        #expect(RepeatMode.off.next(hasQueue: true) == .all)
-        #expect(RepeatMode.all.next(hasQueue: true) == .one)
-        #expect(RepeatMode.one.next(hasQueue: true) == .off)
-        #expect(RepeatMode.off.next(hasQueue: false) == .one)
-        #expect(RepeatMode.one.next(hasQueue: false) == .off)
+        #expect(RepeatMode.off.next == .all)
+        #expect(RepeatMode.all.next == .one)
+        #expect(RepeatMode.one.next == .off)
         #expect(RepeatMode.one.symbolName == "repeat.1")
         #expect(RepeatMode.all.symbolName == "repeat")
         #expect(!RepeatMode.off.isOn && RepeatMode.all.isOn)

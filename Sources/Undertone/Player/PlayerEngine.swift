@@ -9,7 +9,10 @@ import os
 @Observable
 final class PlayerEngine {
     private(set) var track: Track?
-    private(set) var queue: PlayQueue?
+    /// What's playing, Up next and Played. Persisted on every change so the queue survives relaunch.
+    private(set) var upNext: UpNext {
+        didSet { settings.upNext = upNext }
+    }
     private(set) var isResolving = false
     private(set) var resolvingTitle: String?
     private(set) var isPlaying = false
@@ -28,6 +31,8 @@ final class PlayerEngine {
     private(set) var notice: String?
     /// Bytes in the on-disk audio cache; refreshed after each download and by `refreshAudioCacheSize()`.
     private(set) var audioCacheBytes: Int64 = 0
+    /// Cache keys fully downloaded (rows show the download glyph). Refreshed with `audioCacheBytes`.
+    private(set) var downloadedKeys: Set<String> = []
 
     var volume: Float {
         didSet {
@@ -66,6 +71,15 @@ final class PlayerEngine {
         return t.seconds
     }
 
+    /// What the player shows before anything loads (after a relaunch): the saved item's length.
+    var shownDuration: Double? { duration ?? (track == nil ? upNext.current?.duration : nil) }
+
+    /// The position to show: the live one, or the saved one for an item restored on relaunch.
+    var shownTime: Double {
+        guard track == nil, !isResolving, let current = upNext.current else { return currentTime }
+        return settings.positions.position(for: current.url)?.seconds ?? 0
+    }
+
     @ObservationIgnored let player = AVPlayer()
     @ObservationIgnored private let settings: AppSettings
     @ObservationIgnored private let service: YTDLPService
@@ -80,11 +94,16 @@ final class PlayerEngine {
     @ObservationIgnored private var backgroundResolves: [String: Task<Track?, Never>] = [:]
     @ObservationIgnored private var backgroundOwners: [String: Int] = [:]
     @ObservationIgnored private var backgroundGeneration = 0
-    /// Queue index a navigation is heading for while its resolve is in flight (committed in `load`).
-    @ObservationIgnored private var pendingQueueTarget: Int?
+    /// How `upNext` changes once the link being resolved loads. Committed in `load`, so a failed or cancelled
+    /// navigation leaves the queue and the playing track untouched.
+    @ObservationIgnored private var pendingCommit: ((inout UpNext, Track) -> Void)?
+    /// The Up next entry a Next is heading for while it resolves, so a second Next goes one further.
+    @ObservationIgnored private var pendingTargetID: QueueItem.ID?
     @ObservationIgnored private var consecutiveQueueSkips = 0
     @ObservationIgnored private var currentLink: MediaLink?
     @ObservationIgnored private var pastedLink: MediaLink?
+    /// The last load, with its queue change, for the F7 banner's "Try again".
+    @ObservationIgnored private var retryLoad: (() -> Void)?
     @ObservationIgnored private var recoveryAttempts = 0
     @ObservationIgnored private var lastLoadedKey: String?
     @ObservationIgnored private var progressTracking = false
@@ -100,7 +119,7 @@ final class PlayerEngine {
     /// still reads the old time (or 0), so this stands in for it.
     @ObservationIgnored private var pendingSeekTarget: Double?
     @ObservationIgnored private var seekCount = 0
-    @ObservationIgnored let audioCache = AudioCache.standard(bundleIdentifier: Bundle.main.bundleIdentifier)
+    @ObservationIgnored private(set) var audioCache: AudioCache
     /// The background download filling `audioCache` for `downloadKey` (only ever the loaded track).
     @ObservationIgnored private var downloadTask: Task<Void, Never>?
     @ObservationIgnored private var downloadKey: String?
@@ -122,7 +141,10 @@ final class PlayerEngine {
     init(settings: AppSettings, service: YTDLPService) {
         self.settings = settings
         self.service = service
+        audioCache = AudioCache.standard(bundleIdentifier: Bundle.main.bundleIdentifier,
+                                         capacity: Int64(settings.downloadsLimitGB) * 1_000_000_000)
         speed = settings.speed
+        upNext = settings.upNext
         repeatMode = settings.repeatMode
         volume = Float(settings.volume)
         player.volume = volume
@@ -147,19 +169,20 @@ final class PlayerEngine {
         // No download is running yet, so leftovers from a quit mid-download can go.
         let cache = audioCache
         Task { [weak self] in
-            let bytes = await Self.sweep(cache)
+            let (bytes, keys) = await Self.sweep(cache)
             self?.audioCacheBytes = bytes
+            self?.downloadedKeys = keys
         }
     }
 
-    @concurrent private static func sweep(_ cache: AudioCache) async -> Int64 {
+    @concurrent private static func sweep(_ cache: AudioCache) async -> (Int64, Set<String>) {
         cache.sweep()
         cache.evict()
-        return cache.totalSize
+        return (cache.totalSize, Set(cache.usage().map(\.key)))
     }
 
-    @concurrent private static func measure(_ cache: AudioCache) async -> Int64 {
-        cache.totalSize
+    @concurrent private static func measure(_ cache: AudioCache) async -> (Int64, Set<String>) {
+        (cache.totalSize, Set(cache.usage().map(\.key)))
     }
 
     // MARK: - Audio cache
@@ -167,9 +190,27 @@ final class PlayerEngine {
     func refreshAudioCacheSize() {
         let cache = audioCache
         Task { [weak self] in
-            let bytes = await Self.measure(cache)
-            self?.audioCacheBytes = bytes
+            let (bytes, keys) = await Self.measure(cache)
+            guard let self, !self.isDemo else { return }
+            self.audioCacheBytes = bytes
+            self.downloadedKeys = keys
         }
+    }
+
+    /// "Keep up to": a new cap for downloads. Lowering it below what's used removes the oldest downloads (never the
+    /// one playing). Returns whether anything had to go.
+    @discardableResult
+    func setDownloadsLimit(_ gigabytes: Int) -> Bool {
+        settings.downloadsLimitGB = gigabytes
+        audioCache = audioCache.withCapacity(Int64(gigabytes) * 1_000_000_000)
+        guard audioCacheBytes > audioCache.capacity else { return false }
+        let cache = audioCache
+        let keep = currentLink?.cacheKey
+        Task { [weak self] in
+            await Task.detached { cache.evict(keeping: keep) }.value
+            self?.refreshAudioCacheSize()
+        }
+        return true
     }
 
     /// Empties the audio cache. A track playing from it keeps playing: the open file outlives its directory entry.
@@ -179,6 +220,7 @@ final class PlayerEngine {
         downloadKey = nil
         audioCache.removeAll()
         audioCacheBytes = 0
+        downloadedKeys = []
     }
 
     /// Downloads the loaded track into the audio cache once it has stayed loaded for `audioCacheDelay`.
@@ -250,39 +292,61 @@ final class PlayerEngine {
 
     /// The pasted playlist or Mix, while one is loaded.
     var savableQueue: (url: URL, title: String)? {
-        guard let queue, let pastedLink else { return nil }
-        return (pastedLink.resolvedURL, queue.title ?? "Playlist")
+        guard let url = upNext.sourceURL else { return nil }
+        return (url, upNext.sourceTitle ?? (upNext.sourceIsMix ? "Mix" : "Playlist"))
     }
 
-    var isMixLoaded: Bool {
-        if queue != nil, case .mix = pastedLink?.kind { return true }
-        return false
-    }
+    var isMixLoaded: Bool { upNext.sourceURL != nil && upNext.sourceIsMix }
 
     var isTrackSaved: Bool { savableTrack.map { settings.saved.contains($0.url) } ?? false }
     var isQueueSaved: Bool { savableQueue.map { settings.saved.contains($0.url) } ?? false }
 
     func toggleSavedTrack() {
         guard let item = savableTrack else { return }
-        settings.saved.toggle(url: item.url, title: item.title)
+        settings.saved.toggle(url: item.url, title: item.title, kind: .video, duration: duration)
     }
 
     func toggleSavedQueue() {
         guard let item = savableQueue else { return }
-        settings.saved.toggle(url: item.url, title: item.title)
+        let count = upNext.played.count + (upNext.current == nil ? 0 : 1) + upNext.upcoming.count
+        settings.saved.toggle(url: item.url, title: item.title, kind: isMixLoaded ? .mix : .playlist, count: count)
     }
 
     // MARK: - Opening links
 
-    func open(_ text: String) {
-        guard let link = LinkParser.parse(text) else {
-            fail("That doesn't look like a link.", suggestion: "Paste a YouTube video or playlist URL.")
-            return
-        }
-        open(link)
+    /// How a link joins what's playing: Play now replaces (a playlist or Mix replaces Up next), the others queue it.
+    enum OpenMode { case playNow, playNext, addToEnd }
+
+    /// What opening a link did, for the toast.
+    enum OpenResult {
+        /// A single video now plays; Up next is kept.
+        case playing
+        /// A playlist or Mix replaced Up next. `snapshot` undoes it.
+        case replaced(count: Int, snapshot: UpNext)
+        /// Videos were queued. `snapshot` undoes it.
+        case queued(count: Int, title: String, playlist: String?, mode: OpenMode, snapshot: UpNext)
+        case alreadyPlaying
+        case failed
     }
 
-    func open(_ link: MediaLink) {
+    func open(_ text: String, mode: OpenMode = .playNow, completion: ((OpenResult) -> Void)? = nil) {
+        guard let link = LinkParser.parse(text) else {
+            fail("That doesn't look like a link.", suggestion: "Paste a YouTube video or playlist URL.")
+            completion?(.failed)
+            return
+        }
+        open(link, mode: mode, completion: completion)
+    }
+
+    func open(_ link: MediaLink, mode: OpenMode = .playNow, completion: ((OpenResult) -> Void)? = nil) {
+        if mode != .playNow {
+            enqueue(link, mode: mode, completion: completion)
+            return
+        }
+        if !link.isPlaylist, link.kind.isMix == false, track != nil, currentLink?.cacheKey == link.cacheKey {
+            completion?(.alreadyPlaying)
+            return
+        }
         resolveTask?.cancel()
         cancelBackgroundResolves(except: link.cacheKey)   // a warm-up/prefetch for anything else is wasted work now
         clearError()
@@ -292,21 +356,28 @@ final class PlayerEngine {
         log.notice("open \(link.original.absoluteString, privacy: .public)")
 
         if case .mix = link.kind {
-            openPlaylist(link, limit: Self.mixLimit)
+            openPlaylist(link, limit: Self.mixLimit, completion: completion)
         } else if link.isPlaylist {
-            openPlaylist(link)
+            openPlaylist(link, completion: completion)
         } else {
-            queue = nil
-            resolveAndPlay(link, startAt: settings.positions.start(forKey: link.cacheKey, linkStart: link.startTime))
+            // A single video plays now and Up next stays as it is (the old code dropped the whole queue here).
+            playSingle(link, startAt: settings.positions.start(forKey: link.cacheKey, linkStart: link.startTime))
+            completion?(.playing)
+        }
+    }
+
+    /// Plays one video now: what was playing moves to Played and Up next is kept.
+    private func playSingle(_ link: MediaLink, startAt: Double?) {
+        resolveAndPlay(link, startAt: startAt) { q, track in
+            q.playNow(QueueItem(videoID: link.videoID, url: link.resolvedURL, title: track.title, duration: track.duration))
         }
     }
 
     /// A Mix is endless; this many entries become the queue (about three hours, listed in a few seconds).
     static let mixLimit = 50
 
-    private func openPlaylist(_ link: MediaLink, limit: Int = 500) {
-        var isMix = false
-        if case .mix = link.kind { isMix = true }
+    private func openPlaylist(_ link: MediaLink, limit: Int = UpNext.limit, completion: ((OpenResult) -> Void)?) {
+        let isMix = link.kind.isMix
         isResolving = true
         resolvingTitle = isMix ? "Loading mix…" : "Loading playlist…"
         resolveTask = Task { [weak self] in
@@ -317,10 +388,12 @@ final class PlayerEngine {
                 do {
                     entries = try await client.playlistEntries(link, limit: limit)
                 } catch where isMix && !Task.isCancelled {
-                    // Listing a Mix can fail where the video itself plays fine; keep the music going.
+                    // Listing a Mix can fail where the video itself plays fine; keep the music going. The video plays
+                    // on its own and Up next is kept (it used to keep acting on the previous playlist).
                     self.notice = "Couldn't load the Mix, so just this video plays."
                     let video = MediaLink(original: link.original, kind: .video(id: link.videoID ?? ""))
-                    self.resolveAndPlay(video, startAt: self.settings.positions.start(forKey: video.cacheKey, linkStart: link.startTime))
+                    self.playSingle(video, startAt: self.settings.positions.start(forKey: video.cacheKey, linkStart: link.startTime))
+                    completion?(.playing)
                     return
                 }
                 guard !Task.isCancelled else { return }
@@ -328,7 +401,8 @@ final class PlayerEngine {
                 if isMix, entries.count <= 1, let seed = link.videoID {
                     self.notice = "YouTube has no Mix for this video, so just this video plays."
                     let video = MediaLink(original: link.original, kind: .video(id: seed))
-                    self.resolveAndPlay(video, startAt: self.settings.positions.start(forKey: video.cacheKey, linkStart: link.startTime))
+                    self.playSingle(video, startAt: self.settings.positions.start(forKey: video.cacheKey, linkStart: link.startTime))
+                    completion?(.playing)
                     return
                 }
                 var startVideo = link.videoID   // a Mix starts from the video it was built on
@@ -337,25 +411,137 @@ final class PlayerEngine {
                     startVideo = v
                     startIndex = i
                 }
-                let queue = PlayQueue(entries: entries, startVideoID: startVideo, startIndex: startIndex)
-                guard let first = queue.current else {
+                var preview = UpNext()
+                guard let first = preview.replace(with: entries, title: nil, sourceURL: link.resolvedURL, isMix: isMix,
+                                                  startVideoID: startVideo, startIndex: startIndex) else {
                     throw YTDLPFailure.unavailable(message: "No playable videos in that playlist.")
                 }
-                self.queue = queue
-                self.settings.recent.record(url: link.resolvedURL, title: queue.title ?? "Playlist")
-                self.resolveAndPlay(first.link, startAt: self.settings.positions.start(forKey: first.link.cacheKey, linkStart: link.startTime))
+                let title = preview.sourceTitle ?? (isMix ? "Mix" : "Playlist")
+                self.settings.recent.record(url: link.resolvedURL, title: title, kind: isMix ? .mix : .playlist,
+                                            count: entries.filter(\.isAvailable).count)
+                let snapshot = self.upNext
+                let replacedCount = snapshot.upcoming.count
+                self.resolveAndPlay(first.link, startAt: self.settings.positions.start(forKey: first.cacheKey, linkStart: link.startTime)) { q, _ in
+                    q.replace(with: entries, title: nil, sourceURL: link.resolvedURL, isMix: isMix,
+                              startVideoID: startVideo, startIndex: startIndex)
+                }
+                self.resolvingTitle = first.title
+                completion?(.replaced(count: replacedCount, snapshot: snapshot))
             } catch {
                 self.handle(error)
+                completion?(.failed)
             }
         }
     }
 
-    /// - Parameter queueTarget: the queue index this link belongs to. It is committed only once the track
-    ///   loads, so a failed or cancelled Next/Previous leaves the queue and the playing track untouched.
-    private func resolveAndPlay(_ link: MediaLink, startAt: Double? = nil, queueTarget: Int? = nil) {
+    /// Play next / Add to end: lists or resolves the link without touching what's playing, then queues it.
+    private func enqueue(_ link: MediaLink, mode: OpenMode, completion: ((OpenResult) -> Void)?) {
+        if !link.isPlaylist, !link.kind.isMix, track != nil, currentLink?.cacheKey == link.cacheKey {
+            completion?(.alreadyPlaying)
+            return
+        }
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                guard let client = await self.service.readyClient() else { throw YTDLPFailure.notInstalled }
+                var items: [QueueItem]
+                var playlist: String?
+                if link.isPlaylist || link.kind.isMix {
+                    let entries = try await client.playlistEntries(link, limit: link.kind.isMix ? Self.mixLimit : UpNext.limit)
+                    playlist = entries.first?.playlistTitle ?? (link.kind.isMix ? "Mix" : "Playlist")
+                    items = entries.filter(\.isAvailable).map { QueueItem($0, source: playlist) }
+                } else {
+                    let key = link.cacheKey
+                    var track = self.settings.streamCache.track(forKey: key) ?? self.audioCache.entry(forKey: key)?.track
+                    if track == nil {
+                        let resolved = try await client.resolve(link)
+                        self.settings.streamCache.store(resolved, forKey: key)   // playing it later is instant
+                        track = resolved
+                    }
+                    guard let track else { throw YTDLPFailure.unavailable(message: "That video isn't available.") }
+                    items = [QueueItem(videoID: link.videoID, url: link.resolvedURL, title: track.title, duration: track.duration)]
+                }
+                guard !items.isEmpty else { throw YTDLPFailure.unavailable(message: "No playable videos in that playlist.") }
+                let snapshot = self.upNext
+                let count = mode == .playNext ? self.upNext.insertNext(items) : self.upNext.append(items)
+                self.prefetchNext()
+                completion?(.queued(count: count, title: items[0].title, playlist: playlist, mode: mode, snapshot: snapshot))
+            } catch {
+                self.handle(error)
+                completion?(.failed)
+            }
+        }
+    }
+
+    /// What is already known about a link, without yt-dlp: the caches, then Saved and Recent.
+    func knownTitle(for link: MediaLink) -> (title: String, duration: Double?)? {
+        let key = link.cacheKey
+        if !link.isPlaylist, !link.kind.isMix,
+           let track = settings.streamCache.track(forKey: key) ?? audioCache.entry(forKey: key)?.track {
+            return (track.title, track.duration)
+        }
+        func matches(_ url: URL) -> Bool { LinkParser.parse(url.absoluteString)?.cacheKey == key }
+        if let saved = settings.saved.items.first(where: { matches($0.url) }) { return (saved.title, saved.duration) }
+        if let recent = settings.recent.items.first(where: { matches($0.url) }) { return (recent.title, recent.duration) }
+        return nil
+    }
+
+    /// A video's title and length for the F6 prompt: from the caches, else one yt-dlp resolve (cached for Play).
+    func lookup(_ link: MediaLink) async -> (title: String, duration: Double?)? {
+        guard !link.isPlaylist, !link.kind.isMix else { return nil }
+        let key = link.cacheKey
+        if let track = settings.streamCache.track(forKey: key) ?? audioCache.entry(forKey: key)?.track {
+            return (track.title, track.duration)
+        }
+        guard let client = await service.readyClient(), let track = try? await client.resolve(link) else { return nil }
+        settings.streamCache.store(track, forKey: key)
+        return (track.title, track.duration)
+    }
+
+    // MARK: - Editing Up next
+
+    /// Plays one queue row now; the rows above it stay queued.
+    func playQueued(_ id: QueueItem.ID) {
+        guard let i = upNext.index(of: id) else { return }
+        let item = upNext.upcoming[i]
+        resolveAndPlay(item.link) { q, _ in q.jump(to: id) }
+    }
+
+    /// Plays a video from Saved or Recent now: what's playing moves to Played and Up next is kept.
+    func playNow(_ item: QueueItem, startAt: Double? = nil) {
+        resolveAndPlay(item.link, startAt: startAt) { q, track in
+            var item = item
+            item.title = track.title
+            item.duration = track.duration
+            q.playNow(item)
+        }
+    }
+
+    /// Edits Up next and returns the state before, for Undo.
+    @discardableResult
+    func editQueue(_ change: (inout UpNext) -> Void) -> UpNext {
+        let snapshot = upNext
+        change(&upNext)
+        if upNext.next?.id != snapshot.next?.id { prefetchNext() }
+        return snapshot
+    }
+
+    /// Undo for an edit of Up next: puts the queue back; what's playing keeps going.
+    func restoreQueue(from snapshot: UpNext) {
+        upNext.restoreQueue(from: snapshot)
+    }
+
+    /// - Parameters:
+    ///   - target: the Up next entry a Next is heading for, so pressing Next again goes one further.
+    ///   - commit: how Up next changes once this link loads. Applied only then, so a failed or cancelled navigation
+    ///     leaves the queue and the playing track untouched. Nil for a reload of the current item.
+    private func resolveAndPlay(_ link: MediaLink, startAt: Double? = nil, target: QueueItem.ID? = nil,
+                                commit: ((inout UpNext, Track) -> Void)? = nil) {
         resolveTask?.cancel()
         let key = link.cacheKey
-        pendingQueueTarget = queueTarget
+        pendingCommit = commit
+        pendingTargetID = target
+        retryLoad = { [weak self] in self?.resolveAndPlay(link, startAt: startAt, target: target, commit: commit) }
 
         // Played before and kept on disk: no yt-dlp, no segment index, no network.
         if let hit = audioCache.entry(forKey: key) {
@@ -364,7 +550,7 @@ final class PlayerEngine {
             var track = hit.track
             track.expiresAt = nil   // the file does not expire, so Play must never re-resolve it
             load(track, source: StreamSource(asset: AVURLAsset(url: hit.file), loader: nil),
-                 link: link, startAt: startAt, queueTarget: queueTarget, fromCache: true)
+                 link: link, startAt: startAt, fromCache: true)
             return
         }
 
@@ -373,10 +559,10 @@ final class PlayerEngine {
         // A cache hit still waits on the network for its segment index, so it resolves visibly too: Cancel shows,
         // and Play with nothing loaded does not restart it.
         isResolving = true
-        if let queueTarget, let q = queue, q.entries.indices.contains(queueTarget) {
-            resolvingTitle = q.entries[queueTarget].title
+        if let target, let i = upNext.index(of: target) {
+            resolvingTitle = upNext.upcoming[i].title
         } else {
-            resolvingTitle = cached?.title ?? queue?.current?.title ?? "Resolving…"
+            resolvingTitle = cached?.title ?? upNext.current?.title ?? "Resolving…"
         }
         let inFlight = cached == nil ? backgroundResolves[key] : nil
         resolveTask = Task { [weak self] in
@@ -409,7 +595,7 @@ final class PlayerEngine {
                     guard let prepared = try await self.streamSource(for: track), !Task.isCancelled else { return }
                     source = prepared
                 }
-                self.load(track, source: source, link: link, startAt: startAt, queueTarget: queueTarget)
+                self.load(track, source: source, link: link, startAt: startAt)
             } catch {
                 self.handle(error)
             }
@@ -490,25 +676,28 @@ final class PlayerEngine {
         }
     }
 
-    private func load(_ track: Track, source: StreamSource, link: MediaLink, startAt: Double?, queueTarget: Int?, fromCache: Bool = false) {
+    private func load(_ track: Track, source: StreamSource, link: MediaLink, startAt: Double?, fromCache: Bool = false) {
         if let current = currentLink, current.cacheKey != link.cacheKey { savePosition() }
         // An explicit start (a recovery, an idle reload, or a link's `t=` with no saved position) wins; nil picks up the saved position.
         let startAt = startAt ?? settings.positions[link.cacheKey]?.seconds
         teardownItem()
         idleUnloadTask?.cancel()
         isIdleUnloaded = false
-        if lastLoadedKey != link.cacheKey {
+        let isNewTrack = lastLoadedKey != link.cacheKey
+        if isNewTrack {
             recoveryAttempts = 0            // a genuinely new track gets a fresh recovery budget
             lastLoadedKey = link.cacheKey
         }
         currentLink = link
         playingCachedFile = fromCache
-        pendingQueueTarget = nil
         consecutiveQueueSkips = 0
-        if let queueTarget, var q = queue {
-            q.jump(to: queueTarget)
-            queue = q
+        if let commit = pendingCommit {
+            commit(&upNext, track)
+        } else if let current = upNext.current, current.cacheKey == link.cacheKey {
+            upNext.update(current.id, title: track.title, duration: track.duration)
         }
+        pendingCommit = nil
+        pendingTargetID = nil
         self.track = track
         hasEnded = false
         isResolving = false
@@ -532,9 +721,8 @@ final class PlayerEngine {
         if let startAt, startAt > 0 { seekPlayer(to: startAt, toleranceAfter: .positiveInfinity) }
         play()
 
-        if queue == nil, let pastedLink {
-            settings.recent.record(url: pastedLink.resolvedURL, title: track.title)
-        }
+        // Recent tracks every video that plays, so it can show progress and a finished mark per video.
+        if isNewTrack { recordInRecent() }
         prefetchNext()
         if fromCache {
             if downloadKey != link.cacheKey { downloadTask?.cancel(); downloadTask = nil; downloadKey = nil }
@@ -570,6 +758,7 @@ final class PlayerEngine {
 
     /// Derives the published flags from the player. Called from KVO and from the periodic timer as a safety net.
     private func syncPlaybackState() {
+        guard !isDemo else { return }
         let status = player.timeControlStatus
         let playing = status != .paused
         let buffering = status == .waitingToPlayAtSpecifiedRate
@@ -641,14 +830,14 @@ final class PlayerEngine {
 
     // MARK: - Chapters
 
-    /// Next and Previous step through chapters when a single video (no playlist queue) has them.
-    var skipsByChapter: Bool { queue == nil && track?.chapters.isEmpty == false }
+    /// ⏮ and ⏭ step through chapters first when the video has them (and are labelled "chapter").
+    var skipsByChapter: Bool { track?.chapters.isEmpty == false }
 
-    /// Whether Next goes anywhere: the next playlist entry, or the next chapter.
-    var hasNext: Bool { queue?.hasNext ?? (skipsByChapter && chapter != track?.chapters.last) }
+    /// Whether Next goes anywhere: the next chapter, else the next entry in Up next.
+    var hasNext: Bool { (skipsByChapter && chapter != track?.chapters.last) || !upNext.isEmpty }
 
-    /// Whether Previous has an earlier playlist entry or chapter to go to (it can always restart the current one).
-    var hasPrevious: Bool { queue?.hasPrevious ?? skipsByChapter }
+    /// Whether Previous has an earlier chapter or played video to go to (it can always restart the current one).
+    var hasPrevious: Bool { skipsByChapter || !upNext.played.isEmpty }
 
     /// Where playback is heading: an in-flight seek's target (so a second Next goes one further), else the player clock.
     private var targetPosition: Double { pendingSeekTarget ?? livePosition }
@@ -677,9 +866,14 @@ final class PlayerEngine {
 
     func play() {
         guard let track else {
-            // Nothing loaded: replay the last link, unless a resolve is already in flight (a media-key
-            // Play during the first resolve must not kill and re-spawn yt-dlp).
-            if !isResolving, let last = settings.lastLink { open(last) }
+            // Nothing loaded: resume the saved current item (a relaunch), else replay the last link, unless a
+            // resolve is already in flight (a media-key Play during the first resolve must not re-spawn yt-dlp).
+            guard !isResolving else { return }
+            if let current = upNext.current {
+                resolveAndPlay(current.link)
+            } else if let last = settings.lastLink {
+                open(last)
+            }
             return
         }
         if isIdleUnloaded, let link = currentLink {
@@ -702,6 +896,7 @@ final class PlayerEngine {
         if hasEnded {
             hasEnded = false
             currentTime = 0
+            recordInRecent()
             if replayFromAudioCache() { return }
             updateChapter(at: 0)
             player.seek(to: .zero)
@@ -733,13 +928,17 @@ final class PlayerEngine {
         setSpeed(speed.next)
     }
 
+    func cycleSpeedDown() {
+        setSpeed(speed.previous)
+    }
+
     func setRepeatMode(_ mode: RepeatMode) {
         repeatMode = mode
         settings.repeatMode = mode
     }
 
     func cycleRepeatMode() {
-        setRepeatMode(repeatMode.next(hasQueue: queue != nil))
+        setRepeatMode(repeatMode.next)
     }
 
     func setVolume(_ value: Float) {
@@ -769,39 +968,44 @@ final class PlayerEngine {
         seek(to: livePosition + delta)
     }
 
+    /// Chapters first: the next chapter, and after the last one the next video in Up next.
     func next() {
-        guard let q = queue else {
-            if let start = track?.nextChapterStart(after: targetPosition) { seek(to: start) }
+        if pendingTargetID == nil, let start = track?.nextChapterStart(after: targetPosition) {
+            seek(to: start)
             return
         }
         // Step from the entry we are heading for, so Next after a failed or still-resolving entry moves on.
-        let target = (pendingQueueTarget ?? q.index) + 1
-        guard q.entries.indices.contains(target) else { return }
-        resolveAndPlay(q.entries[target].link, queueTarget: target)
+        let from = pendingTargetID.flatMap { upNext.index(of: $0) }.map { $0 + 1 } ?? 0
+        guard upNext.upcoming.indices.contains(from) else { return }
+        playFromQueue(upNext.upcoming[from])
     }
 
+    /// Back a chapter (or to the start of this one, more than 3 s in). At the very start, back into Played.
     func previous() {
-        guard let q = queue else {
-            // Back a chapter (or to the start of this one, more than 3 s in); without chapters, to the start.
-            seek(to: track?.previousChapterStart(from: targetPosition) ?? 0)
+        if pendingTargetID != nil { cancelResolving() }
+        let position = targetPosition
+        if let start = track?.previousChapterStart(from: position), start > 0 || position > 3 {
+            seek(to: start)
             return
         }
-        if pendingQueueTarget == nil, livePosition > 3 {
+        guard position <= 3, let back = upNext.played.last else {
             seek(to: 0)
             return
         }
-        let target = (pendingQueueTarget ?? q.index) - 1
-        guard q.entries.indices.contains(target) else {
-            seek(to: 0)
-            return
-        }
-        resolveAndPlay(q.entries[target].link, queueTarget: target)
+        resolveAndPlay(back.link, startAt: 0) { q, _ in q.goBack() }
+    }
+
+    /// Plays `item`, the first entry of Up next or one further along after repeated Next presses.
+    private func playFromQueue(_ item: QueueItem) {
+        let id = item.id
+        resolveAndPlay(item.link, target: id) { q, _ in q.advance(through: id) }
     }
 
     func cancelResolving() {
         resolveTask?.cancel()
         resolveTask = nil
-        pendingQueueTarget = nil
+        pendingCommit = nil
+        pendingTargetID = nil
         isResolving = false
         resolvingTitle = nil
     }
@@ -810,7 +1014,8 @@ final class PlayerEngine {
         savePosition()
         resolveTask?.cancel()
         cancelBackgroundResolves()
-        pendingQueueTarget = nil
+        pendingCommit = nil
+        pendingTargetID = nil
         idleUnloadTask?.cancel()
         isIdleUnloaded = false
         failedWarmKeys.removeAll()
@@ -823,12 +1028,37 @@ final class PlayerEngine {
         player.replaceCurrentItem(with: nil)
         track = nil
         chapter = nil
-        queue = nil
-        currentLink = nil
+        currentLink = nil   // Up next is kept: it is persisted and comes back on relaunch
         isResolving = false
         resolvingTitle = nil
         hasEnded = false
         currentTime = 0
+    }
+
+    // MARK: - Demo harness
+
+    /// Set once fixtures are loaded: nothing real plays until relaunch.
+    @ObservationIgnored private(set) var isDemo = false
+
+    /// Shows fixture data exactly as the design screens draw it (see `DemoFixtures`). No audio plays.
+    func loadDemo(track: Track?, upNext: UpNext, position: Double, playing: Bool, downloaded: Set<String>, cacheBytes: Int64) {
+        stop()
+        isDemo = true
+        self.track = track
+        self.upNext = upNext
+        currentLink = track.map { MediaLink(original: $0.webpageURL ?? $0.streamURL, kind: .video(id: $0.id)) }
+        currentTime = position
+        updateChapter(at: position)
+        isPlaying = playing
+        downloadedKeys = downloaded
+        audioCacheBytes = cacheBytes
+        clearError()
+        notice = nil
+    }
+
+    /// The demo's "video failed to load" state for the F7 banner.
+    func showDemoFailure() {
+        fail("Couldn't load this video", suggestion: nil)
     }
 
     func shutdown() {
@@ -849,33 +1079,47 @@ final class PlayerEngine {
         notice = nil
     }
 
+    /// The F7 banner's "Try again": clears the error and loads what failed again, from where it was.
+    func retry() {
+        clearError()
+        if let retryLoad {
+            retryLoad()
+        } else if let link = currentLink ?? upNext.current?.link {
+            resolveAndPlay(link, startAt: currentTime > 0 ? currentTime : nil)
+        }
+    }
+
     // MARK: - Events
 
     private func trackEnded() {
         log.notice("ended \(self.track?.title ?? "", privacy: .public) repeat=\(self.repeatMode.rawValue, privacy: .public)")
-        if let key = currentLink?.cacheKey { settings.positions.forget(key) }   // finished: next time starts over
-        switch repeatMode {
-        case .one:
+        if let link = currentLink {
+            settings.positions.forget(link.cacheKey)   // finished: next time starts over
+            settings.recent.markFinished(link.resolvedURL)
+        }
+        if repeatMode == .one {
             restartCurrentTrack()
-        case .all:
-            if let q = queue, !q.isEmpty {
-                let target = q.hasNext ? q.index + 1 : 0
-                resolveAndPlay(q.entries[target].link, queueTarget: target)
-            } else {
-                restartCurrentTrack()
-            }
-        case .off:
-            if let q = queue, q.hasNext {
-                let target = q.index + 1
-                resolveAndPlay(q.entries[target].link, queueTarget: target)
-            } else {
-                hasEnded = true
-                if let d = duration { currentTime = d }
-            }
+        } else if let next = upNext.next {
+            playFromQueue(next)
+        } else if repeatMode == .all, let first = upNext.played.first {
+            resolveAndPlay(first.link, startAt: 0) { q, _ in q.wrapAround() }
+        } else if repeatMode == .all {
+            restartCurrentTrack()
+        } else {
+            // The last item finished: back to Nothing playing (F5). It moves to Played, so ⏮ can still go back.
+            upNext.finish()
+            stop()
         }
     }
 
+    /// Puts the loaded video at the top of Recent (and clears its finished mark).
+    private func recordInRecent() {
+        guard let track, let link = currentLink else { return }
+        settings.recent.record(url: link.resolvedURL, title: track.title, kind: .video, duration: track.duration)
+    }
+
     private func restartCurrentTrack() {
+        recordInRecent()
         hasEnded = false
         currentTime = 0
         if replayFromAudioCache() { return }
@@ -925,7 +1169,7 @@ final class PlayerEngine {
     }
 
     private func prefetchNext() {
-        guard let nextEntry = queue?.next else { return }
+        guard let nextEntry = upNext.next else { return }
         backgroundResolve(nextEntry.link, delay: .seconds(2), isWarmUp: false)
     }
 
@@ -936,15 +1180,21 @@ final class PlayerEngine {
         isResolving = false
         resolvingTitle = nil
         // A removed/private video mid-playlist must not stop the playlist: skip forward (bounded).
-        if let failedTarget = pendingQueueTarget, let q = queue, failedTarget >= q.index,
-           case .unavailable? = error as? YTDLPFailure,
-           consecutiveQueueSkips < Self.maxConsecutiveSkips, q.entries.indices.contains(failedTarget + 1) {
+        if let failed = pendingTargetID, case .unavailable? = error as? YTDLPFailure,
+           consecutiveQueueSkips < Self.maxConsecutiveSkips, let i = upNext.index(of: failed) {
             consecutiveQueueSkips += 1
-            notice = "Skipped an unavailable video in the playlist."
-            log.notice("skipping unavailable playlist entry \(failedTarget + 1)")
-            resolveAndPlay(q.entries[failedTarget + 1].link, queueTarget: failedTarget + 1)
-            return
+            upNext.remove(failed)
+            pendingCommit = nil
+            pendingTargetID = nil
+            if upNext.upcoming.indices.contains(i) {
+                notice = "Skipped an unavailable video in up next."
+                log.notice("skipping unavailable queue entry")
+                playFromQueue(upNext.upcoming[i])
+                return
+            }
         }
+        pendingCommit = nil
+        pendingTargetID = nil
         if case .unsupported? = error as? YTDLPFailure, let link = pastedLink,
            settings.lastLink == link.original.absoluteString {
             settings.lastLink = nil   // don't offer to reopen a link that can never play
