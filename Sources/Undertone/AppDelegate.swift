@@ -64,8 +64,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         case "clear": engine.editQueue { $0.clear() }
         case "paste":
-            // Same as ⌘V in the panel: the clipboard's link, handled for the page that is showing.
-            if let text = PanelController.clipboardLink() {
+            // Same as ⌘V in the panel: the clipboard's link (or `url=`, for testing), handled for the page showing.
+            if let text = query.first(where: { $0.name == "url" })?.value ?? PanelController.clipboardLink() {
                 panel.show()
                 panel.state.pasteRequest = PasteRequest(text: text, mode: nil)
             }

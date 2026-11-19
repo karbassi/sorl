@@ -94,8 +94,8 @@ struct MiniPlayerHeader: View {
 
     private var timeText: String {
         if engine.isResolving { return "Loading…" }
-        guard let duration = engine.duration else { return TimeFormat.clock(engine.currentTime) }
-        return "\(TimeFormat.clock(engine.currentTime)) of \(TimeFormat.clock(duration))"
+        guard let duration = engine.shownDuration else { return TimeFormat.clock(engine.shownTime) }
+        return "\(TimeFormat.clock(engine.shownTime)) of \(TimeFormat.clock(duration))"
     }
 }
 
