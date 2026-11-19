@@ -104,10 +104,12 @@ import Testing
         #expect(q.sourceTitle == "Sets")
     }
 
-    @Test func headerSourceGoesStaleWithMixedAdds() {
+    @Test func headerSourceLastsWhileAnyEntryIsFromIt() {
         var q = Self.queue(["a"])
         #expect(q.headerSource == "Sets")
         q.append([Self.item("other", source: nil)])
+        #expect(q.headerSource == "Sets")
+        q.remove(q.upcoming[0].id)
         #expect(q.headerSource == nil)
     }
 

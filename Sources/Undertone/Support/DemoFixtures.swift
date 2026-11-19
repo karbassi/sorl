@@ -57,7 +57,7 @@ enum DemoFixtures {
 
     static let downloadedTitles: Set<String> = [
         "Target Demographic - Atmosphere", "Deep house at the lighthouse", "Rooftop session, part 2", "Slow mornings",
-        "How the transistor changed everything", "Deep focus, binaural", "Sunday sessions vol. 4",
+        "How the transistor changed everything", "Deep focus, binaural",
     ]
 
     static var downloadedKeys: Set<String> {
@@ -102,7 +102,8 @@ enum DemoFixtures {
         var store = SavedLinksStore()
         let now = Date()
         for (i, row) in rows.enumerated().reversed() {
-            store.save(url: row.url, title: row.title, kind: row.kind, duration: row.duration, count: row.count,
+            // The SOUND ISLAND row is the playlist Up next came from, so its header says "Saved".
+            store.save(url: row.title == "SOUND ISLAND sets" ? soundIsland : row.url, title: row.title, kind: row.kind, duration: row.duration, count: row.count,
                        date: now.addingTimeInterval(Double(-i)))
         }
         return store

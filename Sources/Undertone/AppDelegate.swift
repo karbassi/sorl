@@ -35,7 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for url in queued { handle(url) }
     }
 
-    /// `undertone://play?url=…` `play` `pause` `toggle` `next` `previous` `seek?to=90` `speed?value=2`
+    /// `undertone://play?url=…` `add?url=…&mode=next|end` `clear` `drawer?tab=saved` `play` `pause` `toggle` `next` `previous` `seek?to=90` `speed?value=2`
     /// `volume?value=0.5` `mute` `repeat?mode=one` `save` `open` `settings` `close` `quit`
     func application(_ application: NSApplication, open urls: [URL]) {
         guard isReady else {
@@ -56,6 +56,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             } else {
                 engine.play()
             }
+        case "add":
+            // `add?url=…&mode=next|end`: queues a link without touching what's playing.
+            if let target = query.first(where: { $0.name == "url" })?.value, !target.isEmpty {
+                let next = query.first(where: { $0.name == "mode" })?.value == "next"
+                engine.open(target, mode: next ? .playNext : .addToEnd)
+            }
+        case "clear": engine.editQueue { $0.clear() }
         case "pause": engine.pause()
         case "toggle": engine.togglePlayPause()
         case "next": engine.next()

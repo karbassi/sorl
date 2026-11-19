@@ -23,6 +23,8 @@ final class PanelState {
     var demoScreen: DemoFixtures.Screen?
     /// Forces hover on, for screenshots of hover states: "player" or a row id.
     var forcedHover: String?
+    /// A toast for the demo harness to show (message, action title).
+    var demoToast: (message: String, action: String?, id: UUID)?
     @ObservationIgnored weak var controller: PanelController?
 
     /// The drawer's tabs.
@@ -45,6 +47,31 @@ final class PanelState {
     var focusPasteField = 0
     /// "Played (n)" expanded in Up next.
     var playedExpanded = false
+    /// Up next was emptied with Clear (G4's copy), until something is queued again.
+    var queueCleared = false
+    /// The row just added, marked briefly (G3).
+    var highlightedItem: QueueItem.ID?
+    /// Focus the paste field once the drawer appears.
+    var pendingPasteFocus = false
+    @ObservationIgnored private var highlightTask: Task<Void, Never>?
+
+    func highlight(_ id: QueueItem.ID?) {
+        highlightedItem = id
+        highlightTask?.cancel()
+        highlightTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2.5))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.3)) { self?.highlightedItem = nil }
+        }
+    }
+
+    /// The + on the Up next bar: opens the drawer on Up next with the paste field focused.
+    func openPasteField() {
+        pendingPasteFocus = true
+        setDrawer(true, tab: .upNext)
+        tab = .upNext
+        focusPasteField += 1
+    }
 
     func hide() { controller?.hide() }
 
@@ -178,7 +205,7 @@ final class PanelController {
     }
 
     func show(settings showSettings: Bool = false) {
-        guard let button = statusButton else { return }
+        let button = statusButton ?? NSStatusBarButton()
         let wasVisible = isVisible
         isVisible = true
         rebuildBackdrop()   // works around a stale-glass bug seen on 26.2
@@ -223,7 +250,17 @@ final class PanelController {
             default: state.drawerOpen = false
             }
             state.playedExpanded = false
+            state.queueCleared = screen == .g4
+            state.highlightedItem = nil
         }
+        if screen == .g3 { state.highlight(engine.upNext.upcoming.last?.id) }
+        let toast: (String, String?)? = switch screen {
+        case .g3: ("Added to the end", "Play next instead")
+        case .g4: ("Cleared 21 from up next", "Undo")
+        case .g6: ("Replaced 21 in up next", "Undo")
+        default: nil
+        }
+        state.demoToast = toast.map { ($0.0, $0.1, UUID()) }
         show(settings: screen == .s1 || screen == .s1problem)
     }
 
@@ -339,9 +376,18 @@ final class PanelController {
     }
 
     private func targetFrame(relativeTo button: NSStatusBarButton) -> NSRect? {
-        guard let window = button.window else { return nil }
-        let buttonRect = window.convertToScreen(button.convert(button.bounds, to: nil))
-        guard let screen = Self.screen(nearest: buttonRect) ?? window.screen ?? NSScreen.main else { return nil }
+        // A status item hidden by a crowded menu bar (or a menu bar manager) has no window or sits off every screen.
+        // The panel then opens at the top right of the main screen instead of off-screen.
+        var buttonRect = NSRect.null
+        if let window = button.window, window.isVisible {
+            buttonRect = window.convertToScreen(button.convert(button.bounds, to: nil))
+        }
+        if buttonRect.isNull || !NSScreen.screens.contains(where: { $0.frame.intersects(buttonRect) }) {
+            guard let main = NSScreen.main ?? NSScreen.screens.first else { return nil }
+            let width = PanelStyle.width
+            buttonRect = NSRect(x: main.visibleFrame.maxX - width / 2 - 8, y: main.frame.maxY - 1, width: 1, height: 1)
+        }
+        guard let screen = Self.screen(nearest: buttonRect) ?? NSScreen.main else { return nil }
         let visible = screen.visibleFrame
         let margin: CGFloat = 8
         let gap: CGFloat = 6

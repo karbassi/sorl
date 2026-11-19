@@ -19,6 +19,8 @@ struct DrawerPage: View {
             .padding(.top, 8)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(DrawerSurface())
+            // Toasts sit just above the bottom pin: Up next's paste field, else the drawer's edge.
+            .toasts(toasts, bottomInset: state.tab == .upNext ? 62 : 16)
         }
     }
 
@@ -78,7 +80,7 @@ struct MiniPlayerHeader: View {
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            PlayPauseButton(diameter: 36, glyph: 13)
+            PlayPauseButton(diameter: 36, glyph: 11)
             SymbolButton(symbol: "forward.end", label: engine.skipsByChapter ? "Next chapter" : "Next", size: 16,
                          weight: .regular, side: 32, tint: PanelStyle.text) { engine.next() }
                 .disabled(!engine.hasNext)
@@ -162,6 +164,8 @@ struct SectionHeader<Trailing: View>: View {
     var label: String?
     var detail: String?
     var hint: String?
+    /// False inside a scrolling list, which already insets its content.
+    var inset = true
     @ViewBuilder var trailing: () -> Trailing
 
     var body: some View {
@@ -182,13 +186,13 @@ struct SectionHeader<Trailing: View>: View {
                 .fixedSize()
         }
         .padding(.leading, 6)
-        .frame(height: 28)
-        .padding(.horizontal, PanelStyle.drawerInset)
+        .frame(height: inset ? 28 : 24)
+        .padding(.horizontal, inset ? PanelStyle.drawerInset : 0)
     }
 }
 
 extension SectionHeader where Trailing == EmptyView {
-    init(label: String? = nil, detail: String? = nil, hint: String? = nil) {
-        self.init(label: label, detail: detail, hint: hint) { EmptyView() }
+    init(label: String? = nil, detail: String? = nil, hint: String? = nil, inset: Bool = true) {
+        self.init(label: label, detail: detail, hint: hint, inset: inset) { EmptyView() }
     }
 }

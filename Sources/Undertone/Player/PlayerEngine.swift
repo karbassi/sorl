@@ -407,6 +407,10 @@ final class PlayerEngine {
 
     /// Play next / Add to end: lists or resolves the link without touching what's playing, then queues it.
     private func enqueue(_ link: MediaLink, mode: OpenMode, completion: ((OpenResult) -> Void)?) {
+        if !link.isPlaylist, !link.kind.isMix, track != nil, currentLink?.cacheKey == link.cacheKey {
+            completion?(.alreadyPlaying)
+            return
+        }
         Task { [weak self] in
             guard let self else { return }
             do {

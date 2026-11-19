@@ -116,7 +116,7 @@ struct TextButton: View {
                 .font(PanelStyle.smallBold)
                 .foregroundStyle(tint)
                 .padding(.vertical, 6)
-                .padding(.horizontal, 4)
+                .padding(.horizontal, 3)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

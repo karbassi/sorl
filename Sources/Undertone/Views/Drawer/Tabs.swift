@@ -1,26 +1,6 @@
 import SwiftUI
 import UndertoneCore
 
-/// Up next: what's coming. (Read-only here; editing lands with the Up next tab.)
-struct UpNextTab: View {
-    @Environment(PlayerEngine.self) private var engine
-
-    var body: some View {
-        let queue = engine.upNext
-        VStack(spacing: 10) {
-            SectionHeader(label: queue.headerSource.map { "From \($0)" } ?? "Up next",
-                          detail: queue.isEmpty ? nil : "\(queue.upcoming.count) left")
-            ScrollingList(accessibilityLabel: "Up next") {
-                ForEach(queue.upcoming) { item in
-                    ListRow(id: item.id.uuidString, title: item.title, thumbnail: Thumbnail.url(videoID: item.videoID),
-                            trailing: item.duration.map { .text(TimeFormat.clock($0)) } ?? .none,
-                            downloaded: engine.downloadedKeys.contains(item.cacheKey))
-                }
-            }
-        }
-    }
-}
-
 struct SavedTab: View {
     @Environment(AppSettings.self) private var settings
 

@@ -21,7 +21,8 @@ struct PanelRoot: View {
                 page(height: PanelStyle.drawerHeight) { SettingsView() }
                     .transition(pageTransition(from: .trailing))
             } else if state.drawerOpen {
-                page(height: PanelStyle.drawerHeight) { DrawerPage() }
+                // A demo screen gets a fresh drawer, so one screen's scroll position doesn't carry into the next.
+                page(height: PanelStyle.drawerHeight) { DrawerPage().id(state.demoScreen?.rawValue) }
                     .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
             } else {
                 page(height: nil) { MainView() }
@@ -37,6 +38,10 @@ struct PanelRoot: View {
         .environment(state)
         .environment(toasts)
         .environment(\.forcedHover, state.forcedHover)
+        .onChange(of: state.demoToast?.id) {
+            guard let toast = state.demoToast else { return }
+            toasts.show(toast.message, actionTitle: toast.action, action: toast.action == nil ? nil : {})
+        }
         .onChange(of: state.drawerOpen) { toasts.dismiss() }
         .onChange(of: state.showingSettings) { toasts.dismiss() }
     }

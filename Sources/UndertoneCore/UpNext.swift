@@ -77,9 +77,10 @@ public struct UpNext: Codable, Equatable, Sendable {
     public var isEmpty: Bool { upcoming.isEmpty }
     public var next: QueueItem? { upcoming.first }
 
-    /// The section header's source: the playlist name while every queued entry still comes from it.
+    /// The section header's source: the playlist name while any queued entry still comes from it (G3 keeps
+    /// "From SOUND ISLAND sets" after a link is added to the end).
     public var headerSource: String? {
-        guard let sourceTitle, !upcoming.isEmpty, upcoming.allSatisfy({ $0.source == sourceTitle }) else { return nil }
+        guard let sourceTitle, upcoming.contains(where: { $0.source == sourceTitle }) else { return nil }
         return sourceTitle
     }
 

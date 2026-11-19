@@ -36,12 +36,23 @@ struct ListRow: View {
     var onRemove: () -> Void = {}
     var onMoveUp: (() -> Void)?
     var onMoveDown: (() -> Void)?
+    /// The demo harness forces hover by this key (the item's cache key), since row ids are random.
+    var hoverKey: String?
+    /// The grip's drag, in the list's coordinate space: the vertical translation, then the end.
+    var onDragChanged: ((DragGesture.Value) -> Void)?
+    var onDragEnded: (() -> Void)?
+    /// Lifted while being dragged: white with a shadow.
+    var isDragging = false
+    /// Briefly marked after being added (G3).
+    var isHighlighted = false
 
     @State private var hovering = false
     @FocusState private var focused: Bool
     @Environment(\.forcedHover) private var forcedHover
 
-    private var showsControls: Bool { !isCurrent && (hovering || focused || forcedHover == id) }
+    private var showsControls: Bool {
+        !isCurrent && (hovering || focused || isDragging || (forcedHover != nil && (forcedHover == id || forcedHover == hoverKey)))
+    }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -58,6 +69,10 @@ struct ListRow: View {
         .padding(.horizontal, 6)
         .frame(height: PanelStyle.rowHeight)
         .background(background, in: .rect(cornerRadius: PanelStyle.rowRadius))
+        .shadow(color: .black.opacity(isDragging ? 0.18 : 0), radius: 9, y: 6)
+        .overlay {
+            if isDragging { RoundedRectangle(cornerRadius: PanelStyle.rowRadius).strokeBorder(.black.opacity(0.06)) }
+        }
         .contentShape(.rect(cornerRadius: PanelStyle.rowRadius))
         .onTapGesture(perform: onTap)
         .onPanelHover { hovering = $0 }
@@ -84,7 +99,8 @@ struct ListRow: View {
 
     private var background: Color {
         if isCurrent { return PanelStyle.currentRow }
-        return showsControls ? PanelStyle.hoverRow : .clear
+        if isDragging { return PanelStyle.drawerSurface }
+        return showsControls || isHighlighted ? PanelStyle.hoverRow : .clear
     }
 
     private var thumbnailView: some View {
@@ -97,14 +113,16 @@ struct ListRow: View {
                 if reorderable {
                     RoundedRectangle(cornerRadius: PanelStyle.thumbRadius)
                         .fill(.black.opacity(0.45))
-                        .overlay {
-                            Image(systemName: "circle.grid.2x3.fill")
-                                .font(.system(size: 9, weight: .bold))
-                                .foregroundStyle(.white)
-                        }
+                        .overlay { GripDots() }
                         .opacity(showsControls ? 1 : 0)
                         .help("Drag to reorder")
                         .accessibilityHidden(true)
+                        .gesture(
+                            DragGesture(minimumDistance: 2, coordinateSpace: .named(ListRow.dragSpace))
+                                .onChanged { onDragChanged?($0) }
+                                .onEnded { _ in onDragEnded?() }
+                        )
+                        .pointerStyle(isDragging ? .grabActive : .grabIdle)
                 }
             }
     }
@@ -151,6 +169,9 @@ struct ListRow: View {
             EmptyView()
         }
     }
+
+    /// The coordinate space reorder drags are measured in.
+    static let dragSpace = "list-drag"
 
     private var accessibilityLabel: String {
         var parts = [title]
@@ -230,5 +251,20 @@ struct PlayedRow: View {
             .accessibilityLabel("\(title), played")
             .accessibilityAddTraits(.isButton)
             .accessibilityAction(named: "Play again", onTap)
+    }
+}
+
+/// Six white dots in two columns: the drag grip over an Up next thumbnail.
+private struct GripDots: View {
+    var body: some View {
+        Grid(horizontalSpacing: 3, verticalSpacing: 3) {
+            ForEach(0..<3, id: \.self) { _ in
+                GridRow {
+                    Circle().frame(width: 2.5, height: 2.5)
+                    Circle().frame(width: 2.5, height: 2.5)
+                }
+            }
+        }
+        .foregroundStyle(.white)
     }
 }

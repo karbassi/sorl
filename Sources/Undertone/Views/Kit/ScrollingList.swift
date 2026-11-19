@@ -1,30 +1,40 @@
 import SwiftUI
 
+/// Where a `ScrollingList` is scrolled, for drag auto-scroll.
+struct ScrollMetrics: Equatable {
+    var offset: CGFloat = 0
+    var viewport: CGFloat = 0
+    var content: CGFloat = 0
+}
+
 /// The scrolling middle of every tab. A 36pt fade sits at the bottom edge; a 28pt fade at the top appears once the
 /// list is scrolled. The content keeps the drawer's 16pt side inset and a little room at the end.
 struct ScrollingList<Content: View>: View {
     var accessibilityLabel: String
     var fadeColor: Color = PanelStyle.drawerSurface
+    var spacing: CGFloat = 0
+    var position: Binding<ScrollPosition>?
+    var metrics: Binding<ScrollMetrics>?
     @ViewBuilder var content: () -> Content
+    @State private var ownPosition = ScrollPosition()
     @State private var scrolled = false
-    @State private var canScrollDown = false
 
     var body: some View {
         ScrollView(.vertical) {
-            LazyVStack(alignment: .leading, spacing: 0) {
+            LazyVStack(alignment: .leading, spacing: spacing) {
                 content()
             }
             .padding(.horizontal, PanelStyle.drawerInset)
             .padding(.bottom, 8)
         }
+        .scrollPosition(position ?? $ownPosition)
         .scrollIndicators(.automatic)
-        .onScrollGeometryChange(for: [Bool].self) { geo in
-            let offset = geo.contentOffset.y + geo.contentInsets.top
-            let remaining = geo.contentSize.height - geo.containerSize.height - offset
-            return [offset > 1, remaining > 1]
-        } action: { _, flags in
-            scrolled = flags[0]
-            canScrollDown = flags[1]
+        .onScrollGeometryChange(for: ScrollMetrics.self) { geo in
+            ScrollMetrics(offset: geo.contentOffset.y + geo.contentInsets.top, viewport: geo.containerSize.height,
+                          content: geo.contentSize.height)
+        } action: { _, value in
+            scrolled = value.offset > 1
+            metrics?.wrappedValue = value
         }
         .overlay(alignment: .top) {
             LinearGradient(colors: [fadeColor, fadeColor.opacity(0)], startPoint: .top, endPoint: .bottom)
@@ -60,7 +70,7 @@ struct EmptyListMessage: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity)
-        .padding(.horizontal, 16)
+        .padding(EdgeInsets(top: 28, leading: 12, bottom: 8, trailing: 12))
         .accessibilityElement(children: .combine)
     }
 }
