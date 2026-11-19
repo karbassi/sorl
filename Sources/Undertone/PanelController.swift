@@ -21,7 +21,7 @@ final class PanelState {
     var maxContentHeight: CGFloat = .infinity
     /// The demo harness screen on show (`undertone://demo`), or nil for the real panel.
     var demoScreen: DemoFixtures.Screen?
-    /// Forces hover on, for screenshots of hover states: "player" or a row id.
+    /// Forces hover on, for screenshots of hover states: "player" or a row's title.
     var forcedHover: String?
     /// A toast for the demo harness to show (message, action title).
     var demoToast: (message: String, action: String?, id: UUID)?

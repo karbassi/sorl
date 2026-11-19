@@ -126,7 +126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         default: NSApp.appearance = nil
         }
         let hover = query.first(where: { $0.name == "hover" })?.value
-        panel.showDemo(screen, hover: hover.map { $0 == "player" ? $0 : DemoFixtures.item($0).cacheKey })
+        panel.showDemo(screen, hover: hover)
     }
 
     func applicationWillTerminate(_ notification: Notification) {

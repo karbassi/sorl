@@ -158,8 +158,11 @@ enum DemoFixtures {
         switch screen {
         case .f1, .f1b, .f6, .f7, .s1, .s1problem, .f2:
             return State(screen: screen, track: withChapters, upNext: upNext(), ytdlpBroken: screen == .f7 || screen == .s1problem)
-        case .g1, .g2, .g7, .g8, .g9:
+        case .g1, .g2, .g8, .g9:
             return State(screen: screen, track: noChapters, upNext: upNext())
+        case .g7:
+            // G7 marks "no vocals deep house mix" as playing while its mini player shows Brothers Vibe (AUDIT E3).
+            return State(screen: screen, track: noChapters, upNext: upNext(current: item("no vocals deep house mix", "2:31:24")))
         case .f7drawer:
             return State(screen: screen, track: noChapters, upNext: upNext(), playbackFailed: true)
         case .g3:

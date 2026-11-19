@@ -51,7 +51,7 @@ struct ListRow: View {
     @Environment(\.forcedHover) private var forcedHover
 
     private var showsControls: Bool {
-        !isCurrent && (hovering || focused || isDragging || (forcedHover != nil && (forcedHover == id || forcedHover == hoverKey)))
+        !isCurrent && (hovering || focused || isDragging || (forcedHover != nil && [id, hoverKey, title].contains(forcedHover)))
     }
 
     var body: some View {

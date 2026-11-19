@@ -57,6 +57,8 @@ struct UpNextTab: View {
         .onAppear {
             if let id = state.highlightedItem { position.scrollTo(id: id, anchor: .bottom) }
         }
+        // Each demo screen starts at the top, like a freshly opened drawer.
+        .onChange(of: state.demoScreen) { position.scrollTo(edge: .top) }
     }
 
     // MARK: Chapters (F2)

@@ -172,7 +172,7 @@ struct SectionHeader<Trailing: View>: View {
         HStack(spacing: 0) {
             Group {
                 if let hint {
-                    Text(hint)
+                    Text(LocalizedStringKey(hint))
                         .foregroundStyle(PanelStyle.secondary)
                 } else {
                     Text("\(Text(label ?? "").fontWeight(.bold).foregroundStyle(PanelStyle.strong))\(Text(detail.map { " · \($0)" } ?? "").foregroundStyle(PanelStyle.secondary))")

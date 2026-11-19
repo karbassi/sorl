@@ -21,8 +21,7 @@ struct PanelRoot: View {
                 page(height: PanelStyle.drawerHeight) { SettingsView() }
                     .transition(pageTransition(from: .trailing))
             } else if state.drawerOpen {
-                // A demo screen gets a fresh drawer, so one screen's scroll position doesn't carry into the next.
-                page(height: PanelStyle.drawerHeight) { DrawerPage().id(state.demoScreen?.rawValue) }
+                page(height: PanelStyle.drawerHeight) { DrawerPage() }
                     .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
             } else {
                 page(height: nil) { MainView() }
