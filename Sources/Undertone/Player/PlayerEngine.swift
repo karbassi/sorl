@@ -453,6 +453,31 @@ final class PlayerEngine {
         }
     }
 
+    /// What is already known about a link, without yt-dlp: the caches, then Saved and Recent.
+    func knownTitle(for link: MediaLink) -> (title: String, duration: Double?)? {
+        let key = link.cacheKey
+        if !link.isPlaylist, !link.kind.isMix,
+           let track = settings.streamCache.track(forKey: key) ?? audioCache.entry(forKey: key)?.track {
+            return (track.title, track.duration)
+        }
+        func matches(_ url: URL) -> Bool { LinkParser.parse(url.absoluteString)?.cacheKey == key }
+        if let saved = settings.saved.items.first(where: { matches($0.url) }) { return (saved.title, saved.duration) }
+        if let recent = settings.recent.items.first(where: { matches($0.url) }) { return (recent.title, recent.duration) }
+        return nil
+    }
+
+    /// A video's title and length for the F6 prompt: from the caches, else one yt-dlp resolve (cached for Play).
+    func lookup(_ link: MediaLink) async -> (title: String, duration: Double?)? {
+        guard !link.isPlaylist, !link.kind.isMix else { return nil }
+        let key = link.cacheKey
+        if let track = settings.streamCache.track(forKey: key) ?? audioCache.entry(forKey: key)?.track {
+            return (track.title, track.duration)
+        }
+        guard let client = await service.readyClient(), let track = try? await client.resolve(link) else { return nil }
+        settings.streamCache.store(track, forKey: key)
+        return (track.title, track.duration)
+    }
+
     // MARK: - Editing Up next
 
     /// Plays one queue row now; the rows above it stay queued.

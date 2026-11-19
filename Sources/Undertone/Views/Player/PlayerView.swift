@@ -8,7 +8,6 @@ struct PlayerView: View {
     @Environment(PlayerEngine.self) private var engine
     @Environment(PanelState.self) private var state
     @State private var hovering = false
-    @FocusState private var focusInside: Bool
 
     private var revealed: Bool { hovering || state.forcedHover == "player" }
 
@@ -29,6 +28,13 @@ struct PlayerView: View {
         .frame(width: PanelStyle.width, height: PanelStyle.playerHeight)
         .contentShape(Rectangle())
         .onPanelHover { hovering = $0 }
+        .overlay {
+            if let prompt = state.pastePrompt {
+                PastePromptCard(prompt: prompt)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: state.pastePrompt?.id)
     }
 }
 

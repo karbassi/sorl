@@ -71,6 +71,7 @@ enum DemoFixtures {
     }
 
     static let soundIsland = URL(string: "https://www.youtube.com/playlist?list=PLdemoSOUNDISLAND")!
+    static let focusPlaylist = URL(string: "https://www.youtube.com/playlist?list=PLdemoFOCUS")!
 
     static func upNext(queue: [QueueItem] = queue, played: [QueueItem] = played, current: QueueItem? = current) -> UpNext {
         UpNext(current: current, upcoming: queue, played: played, sourceTitle: "SOUND ISLAND sets", sourceURL: soundIsland)
@@ -103,13 +104,20 @@ enum DemoFixtures {
         let now = Date()
         for (i, row) in rows.enumerated().reversed() {
             // The SOUND ISLAND row is the playlist Up next came from, so its header says "Saved".
-            store.save(url: row.title == "SOUND ISLAND sets" ? soundIsland : row.url, title: row.title, kind: row.kind, duration: row.duration, count: row.count,
+            store.save(url: row.title == "SOUND ISLAND sets" ? soundIsland : row.title == "Focus, no vocals" ? focusPlaylist : row.url, title: row.title, kind: row.kind, duration: row.duration, count: row.count,
                        date: now.addingTimeInterval(Double(-i)))
         }
         return store
     }
 
     /// G8: Today, Yesterday, Earlier this week, Last week, with the thumbnail bars.
+    /// F6: "Piano for deep work" on the clipboard.
+    static var pastePrompt: PastePrompt {
+        let row = link("Piano for deep work", kind: .video, "58:12")
+        return PastePrompt(text: row.url.absoluteString, kind: .video, videoID: demoID("Piano for deep work"),
+                           title: row.title, duration: row.duration)
+    }
+
     /// F5 shows "no vocals deep house mix" and "Late night deep house" on top (`pickUp`).
     static func recent(now: Date = Date(), pickUp: Bool = false) -> (store: RecentLinksStore, positions: [String: SavedPosition]) {
         let cal = Calendar.current
@@ -186,7 +194,7 @@ enum DemoFixtures {
                 .map { item($0.0, $0.1, source: "Focus, no vocals") }
             let more = (5...111).map { item("Focus track \($0)", "4:00", source: "Focus, no vocals") }
             let q = UpNext(current: opening, upcoming: focus + more, played: [current], sourceTitle: "Focus, no vocals",
-                           sourceURL: URL(string: "https://www.youtube.com/playlist?list=PLdemoFOCUS")!)
+                           sourceURL: focusPlaylist)
             return State(screen: screen, track: track(opening), upNext: q, position: 4)
         case .f5, .f7f5:
             return State(screen: screen, track: nil, upNext: UpNext(), position: 0, playing: false, ytdlpBroken: screen == .f7f5)

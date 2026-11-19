@@ -63,6 +63,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 engine.open(target, mode: next ? .playNext : .addToEnd)
             }
         case "clear": engine.editQueue { $0.clear() }
+        case "paste":
+            // Same as ⌘V in the panel: the clipboard's link, handled for the page that is showing.
+            if let text = PanelController.clipboardLink() {
+                panel.show()
+                panel.state.pasteRequest = PasteRequest(text: text, mode: nil)
+            }
         case "pause": engine.pause()
         case "toggle": engine.togglePlayPause()
         case "next": engine.next()

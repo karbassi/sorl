@@ -115,13 +115,6 @@ struct PasteField: View {
         guard !text.isEmpty else { return }
         state.urlText = ""
         focused = false
-        engine.open(text, mode: .playNow) { result in
-            if case .replaced(let count, let snapshot) = result, count > 0 {
-                toasts.showUndo("Replaced \(count) in up next") { engine.restoreQueue(from: snapshot) }
-            } else if case .failed = result {
-                toasts.show(engine.errorMessage ?? "Couldn't play that")
-                engine.clearError()
-            }
-        }
+        PasteRouter.perform(.playNow, text: text, engine: engine, toasts: toasts)
     }
 }

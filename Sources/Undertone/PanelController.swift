@@ -53,6 +53,10 @@ final class PanelState {
     var highlightedItem: QueueItem.ID?
     /// Focus the paste field once the drawer appears.
     var pendingPasteFocus = false
+    /// The F6 card on the player: what should this link do?
+    var pastePrompt: PastePrompt?
+    /// A ⌘V (mode nil: decided by where you are) or an F6 choice, for `PasteRouter` to carry out.
+    var pasteRequest: PasteRequest?
     @ObservationIgnored private var highlightTask: Task<Void, Never>?
 
     func highlight(_ id: QueueItem.ID?) {
@@ -111,6 +115,22 @@ final class PanelState {
         else { return }
         urlText = text
     }
+}
+
+/// The link F6 asks about, with what is known of it so far.
+struct PastePrompt: Equatable, Identifiable {
+    let id = UUID()
+    let text: String
+    let kind: LinkKind
+    var videoID: String?
+    var title: String?
+    var duration: Double?
+}
+
+struct PasteRequest: Equatable {
+    let id = UUID()
+    let text: String
+    let mode: PlayerEngine.OpenMode?
 }
 
 final class PanelController {
@@ -250,6 +270,7 @@ final class PanelController {
             default: state.drawerOpen = false
             }
             state.playedExpanded = false
+            state.pastePrompt = screen == .f6 ? DemoFixtures.pastePrompt : nil
             state.queueCleared = screen == .g4
             state.highlightedItem = nil
         }
@@ -262,6 +283,15 @@ final class PanelController {
         }
         state.demoToast = toast.map { ($0.0, $0.1, UUID()) }
         show(settings: screen == .s1 || screen == .s1problem)
+    }
+
+    /// The clipboard, when it holds exactly one link (no spaces or line breaks).
+    static func clipboardLink() -> String? {
+        guard let raw = NSPasteboard.general.string(forType: .string) else { return nil }
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, text.count <= 400, !text.contains(where: { $0 == " " || $0.isNewline || $0 == "\t" }),
+              LinkParser.parse(text) != nil else { return nil }
+        return text
     }
 
     /// `undertone://drawer?tab=saved`: opens the drawer on a tab.
@@ -527,6 +557,14 @@ final class PanelController {
     private func handleKey(_ event: NSEvent) -> NSEvent? {
         guard event.window == panel else { return event }
         // Esc steps back one level: Settings, then the drawer, then the panel.
+        if let prompt = state.pastePrompt, !state.showingSettings, !state.drawerOpen {
+            if event.keyCode == 53 { state.pastePrompt = nil; return nil }
+            if event.keyCode == 36 || event.keyCode == 76 {
+                state.pastePrompt = nil
+                state.pasteRequest = PasteRequest(text: prompt.text, mode: .playNow)
+                return nil
+            }
+        }
         if event.keyCode == 53 {
             if state.showingSettings {
                 state.showSettings(false)
@@ -573,6 +611,11 @@ final class PanelController {
         default: nil
         }
         guard let selector else { return event }
+        // ⌘V outside a text field: what a link does depends on where you are (see PasteRouter).
+        if key == "v", flags == .command, !(panel.firstResponder is NSTextView), let text = PanelController.clipboardLink() {
+            state.pasteRequest = PasteRequest(text: text, mode: nil)
+            return nil
+        }
         if panel.firstResponder?.tryToPerform(selector, with: nil) == true { return nil }
         return event
     }

@@ -44,7 +44,15 @@ struct PanelRoot: View {
             guard let toast = state.demoToast else { return }
             toasts.show(toast.message, actionTitle: toast.action, action: toast.action == nil ? nil : {})
         }
-        .onChange(of: state.drawerOpen) { toasts.dismiss() }
+        .onChange(of: state.pasteRequest) {
+            guard let request = state.pasteRequest else { return }
+            state.pasteRequest = nil
+            PasteRouter.handle(request, engine: engine, state: state, toasts: toasts)
+        }
+        .onChange(of: state.drawerOpen) {
+            if state.demoScreen == nil { toasts.dismiss() }   // the demo harness shows its toast with the drawer
+            if state.drawerOpen { state.pastePrompt = nil }
+        }
         .onChange(of: state.showingSettings) { toasts.dismiss() }
     }
 
