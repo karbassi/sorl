@@ -31,6 +31,8 @@ final class PlayerEngine {
     private(set) var notice: String?
     /// Bytes in the on-disk audio cache; refreshed after each download and by `refreshAudioCacheSize()`.
     private(set) var audioCacheBytes: Int64 = 0
+    /// Cache keys fully downloaded (rows show the download glyph). Refreshed with `audioCacheBytes`.
+    private(set) var downloadedKeys: Set<String> = []
 
     var volume: Float {
         didSet {
@@ -154,19 +156,20 @@ final class PlayerEngine {
         // No download is running yet, so leftovers from a quit mid-download can go.
         let cache = audioCache
         Task { [weak self] in
-            let bytes = await Self.sweep(cache)
+            let (bytes, keys) = await Self.sweep(cache)
             self?.audioCacheBytes = bytes
+            self?.downloadedKeys = keys
         }
     }
 
-    @concurrent private static func sweep(_ cache: AudioCache) async -> Int64 {
+    @concurrent private static func sweep(_ cache: AudioCache) async -> (Int64, Set<String>) {
         cache.sweep()
         cache.evict()
-        return cache.totalSize
+        return (cache.totalSize, Set(cache.usage().map(\.key)))
     }
 
-    @concurrent private static func measure(_ cache: AudioCache) async -> Int64 {
-        cache.totalSize
+    @concurrent private static func measure(_ cache: AudioCache) async -> (Int64, Set<String>) {
+        (cache.totalSize, Set(cache.usage().map(\.key)))
     }
 
     // MARK: - Audio cache
@@ -174,8 +177,10 @@ final class PlayerEngine {
     func refreshAudioCacheSize() {
         let cache = audioCache
         Task { [weak self] in
-            let bytes = await Self.measure(cache)
-            self?.audioCacheBytes = bytes
+            let (bytes, keys) = await Self.measure(cache)
+            guard let self, !self.isDemo else { return }
+            self.audioCacheBytes = bytes
+            self.downloadedKeys = keys
         }
     }
 
@@ -186,6 +191,7 @@ final class PlayerEngine {
         downloadKey = nil
         audioCache.removeAll()
         audioCacheBytes = 0
+        downloadedKeys = []
     }
 
     /// Downloads the loaded track into the audio cache once it has stayed loaded for `audioCacheDelay`.
@@ -693,6 +699,7 @@ final class PlayerEngine {
 
     /// Derives the published flags from the player. Called from KVO and from the periodic timer as a safety net.
     private func syncPlaybackState() {
+        guard !isDemo else { return }
         let status = player.timeControlStatus
         let playing = status != .paused
         let buffering = status == .waitingToPlayAtSpecifiedRate
@@ -967,6 +974,32 @@ final class PlayerEngine {
         resolvingTitle = nil
         hasEnded = false
         currentTime = 0
+    }
+
+    // MARK: - Demo harness
+
+    /// Set once fixtures are loaded: nothing real plays until relaunch.
+    @ObservationIgnored private(set) var isDemo = false
+
+    /// Shows fixture data exactly as the design screens draw it (see `DemoFixtures`). No audio plays.
+    func loadDemo(track: Track?, upNext: UpNext, position: Double, playing: Bool, downloaded: Set<String>, cacheBytes: Int64) {
+        stop()
+        isDemo = true
+        self.track = track
+        self.upNext = upNext
+        currentLink = track.map { MediaLink(original: $0.webpageURL ?? $0.streamURL, kind: .video(id: $0.id)) }
+        currentTime = position
+        updateChapter(at: position)
+        isPlaying = playing
+        downloadedKeys = downloaded
+        audioCacheBytes = cacheBytes
+        clearError()
+        notice = nil
+    }
+
+    /// The demo's "video failed to load" state for the F7 banner.
+    func showDemoFailure() {
+        fail("Couldn't load this video", suggestion: nil)
     }
 
     func shutdown() {

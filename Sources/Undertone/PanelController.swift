@@ -19,6 +19,10 @@ final class PanelState {
     var showCount = 0
     /// The tallest the content may be on the current screen; taller pages scroll inside the panel.
     var maxContentHeight: CGFloat = .infinity
+    /// The demo harness screen on show (`undertone://demo`), or nil for the real panel.
+    var demoScreen: DemoFixtures.Screen?
+    /// Forces hover on, for screenshots of hover states: "player" or a row id.
+    var forcedHover: String?
     @ObservationIgnored weak var controller: PanelController?
 
     func hide() { controller?.hide() }
@@ -171,6 +175,13 @@ final class PanelController {
         }
         installMonitors()
         engine.setProgressTracking(true)
+    }
+
+    /// Shows the panel on a demo harness screen. Each page reads `state.demoScreen` on appear.
+    func showDemo(_ screen: DemoFixtures.Screen, hover: String?) {
+        state.demoScreen = screen
+        state.forcedHover = hover
+        show(settings: screen == .s1 || screen == .s1problem)
     }
 
     func hide() {

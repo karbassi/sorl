@@ -30,8 +30,10 @@ struct Thumbnail: View {
     }
 
     /// YouTube's medium thumbnail for a video id.
+    /// Nil for the demo harness's made-up ids, which draw the placeholder like the design screens.
     static func url(videoID: String?) -> URL? {
-        videoID.flatMap { URL(string: "https://i.ytimg.com/vi/\($0)/mqdefault.jpg") }
+        guard let videoID, !videoID.hasPrefix(DemoFixtures.idPrefix) else { return nil }
+        return URL(string: "https://i.ytimg.com/vi/\(videoID)/mqdefault.jpg")
     }
 
     static func url(for link: URL) -> URL? {

@@ -42,6 +42,11 @@ final class YTDLPService {
     }
 
     /// Kick off the initial locate+probe. Call once at launch.
+    /// The demo harness's "yt-dlp out of date" state. Nothing re-probes until relaunch.
+    func simulate(_ status: ToolStatus) {
+        self.status = status
+    }
+
     func start() {
         guard refreshTask == nil else { return }
         refreshTask = Task { await refresh() }

@@ -29,7 +29,7 @@ final class AppSettings {
         static let showTotalTime = "showTotalTime"
     }
 
-    @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private var defaults: UserDefaults
     @ObservationIgnored private var persistCacheTask: Task<Void, Never>?
     @ObservationIgnored private var persistUpNextTask: Task<Void, Never>?
 
@@ -78,6 +78,18 @@ final class AppSettings {
     func flushUpNext() {
         persistUpNextTask?.cancel()
         defaults.set((try? upNext.encoded()) ?? Data(), forKey: Keys.upNext)
+    }
+
+    /// The demo harness (`undertone://demo`) is off unless `defaults write com.jverissimo.undertone demoHarness -bool YES`.
+    var demoHarnessEnabled: Bool { defaults.bool(forKey: "demoHarness") }
+
+    /// Demo fixtures must never overwrite real Saved, Recent or Up next: from here on every write goes to a
+    /// throwaway domain (until relaunch).
+    func enterDemoMode() {
+        guard let demo = UserDefaults(suiteName: "com.jverissimo.undertone.demo") else { return }
+        persistUpNextTask?.cancel()
+        persistCacheTask?.cancel()
+        defaults = demo
     }
 
     var speed: PlaybackSpeed {

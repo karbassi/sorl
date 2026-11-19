@@ -78,12 +78,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 engine.cycleRepeatMode()
             }
         case "save": engine.toggleSavedTrack()
+        case "demo": showDemo(query)
         case "open": panel.show()
         case "settings": panel.show(settings: true)
         case "close": panel.hide()
         case "quit": NSApp.terminate(nil)
         default: log.notice("unknown URL \(url.absoluteString, privacy: .public)")
         }
+    }
+
+    /// `undertone://demo?screen=g2&hover=<title>`: loads the design screens' fixtures (see `DemoFixtures`) and shows the
+    /// panel on that screen. Off unless the hidden `demoHarness` default is set; never touches real Saved/Recent/Up next.
+    private func showDemo(_ query: [URLQueryItem]) {
+        guard settings.demoHarnessEnabled else {
+            log.notice("demo harness is off (defaults write com.jverissimo.undertone demoHarness -bool YES)")
+            return
+        }
+        let raw = query.first(where: { $0.name == "screen" })?.value?.lowercased() ?? "f1"
+        guard let screen = DemoFixtures.Screen(rawValue: raw) else { return }
+        settings.enterDemoMode()
+        let demo = DemoFixtures.state(for: screen)
+        settings.saved = DemoFixtures.saved
+        let recent = DemoFixtures.recent()
+        settings.recent = recent.store
+        settings.positions = PlaybackPositions(entries: recent.positions)
+        settings.speed = .normal
+        engine.setSpeed(.normal)
+        engine.setRepeatMode(screen == .f1 || screen == .f6 || screen == .f7 ? .all : .off)
+        engine.loadDemo(track: demo.track, upNext: demo.upNext, position: demo.position, playing: demo.playing,
+                        downloaded: DemoFixtures.downloadedKeys, cacheBytes: 340 * 1_000_000)
+        if demo.playbackFailed { engine.showDemoFailure() }
+        service.simulate(demo.ytdlpBroken ? .outdated(YTDLPVersion(2025, 6, 30)) : .ready(YTDLPVersion(2026, 10, 22)))
+        let hover = query.first(where: { $0.name == "hover" })?.value
+        panel.showDemo(screen, hover: hover.map { $0 == "player" ? $0 : DemoFixtures.item($0).cacheKey })
     }
 
     func applicationWillTerminate(_ notification: Notification) {
