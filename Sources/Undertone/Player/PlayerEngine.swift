@@ -102,6 +102,8 @@ final class PlayerEngine {
     @ObservationIgnored private var consecutiveQueueSkips = 0
     @ObservationIgnored private var currentLink: MediaLink?
     @ObservationIgnored private var pastedLink: MediaLink?
+    /// The last load, with its queue change, for the F7 banner's "Try again".
+    @ObservationIgnored private var retryLoad: (() -> Void)?
     @ObservationIgnored private var recoveryAttempts = 0
     @ObservationIgnored private var lastLoadedKey: String?
     @ObservationIgnored private var progressTracking = false
@@ -521,6 +523,7 @@ final class PlayerEngine {
         let key = link.cacheKey
         pendingCommit = commit
         pendingTargetID = target
+        retryLoad = { [weak self] in self?.resolveAndPlay(link, startAt: startAt, target: target, commit: commit) }
 
         // Played before and kept on disk: no yt-dlp, no segment index, no network.
         if let hit = audioCache.entry(forKey: key) {
@@ -1056,6 +1059,16 @@ final class PlayerEngine {
 
     func clearNotice() {
         notice = nil
+    }
+
+    /// The F7 banner's "Try again": clears the error and loads what failed again, from where it was.
+    func retry() {
+        clearError()
+        if let retryLoad {
+            retryLoad()
+        } else if let link = currentLink ?? upNext.current?.link {
+            resolveAndPlay(link, startAt: currentTime > 0 ? currentTime : nil)
+        }
     }
 
     // MARK: - Events

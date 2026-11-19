@@ -24,7 +24,9 @@ struct PanelRoot: View {
                 page(height: PanelStyle.drawerHeight) { DrawerPage() }
                     .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
             } else if engine.track != nil || engine.isResolving || engine.upNext.current != nil {
-                page(height: PanelStyle.playerHeight) { PlayerView().toasts(toasts, bottomInset: 60) }
+                page(height: PanelStyle.playerHeight + (ProblemBanner.isShowing(engine: engine, service: service) ? PanelStyle.bannerHeight + 8 : 0)) {
+                    PlayerView().toasts(toasts, bottomInset: 60)
+                }
                     .transition(pageTransition(from: .leading))
             } else {
                 page(height: nil) { NothingPlayingView().toasts(toasts) }
@@ -43,6 +45,12 @@ struct PanelRoot: View {
         .onChange(of: state.demoToast?.id) {
             guard let toast = state.demoToast else { return }
             toasts.show(toast.message, actionTitle: toast.action, action: toast.action == nil ? nil : {})
+        }
+        // One-off notices (a skipped video, no Mix found) are toasts.
+        .onChange(of: engine.notice) {
+            guard let notice = engine.notice else { return }
+            toasts.show(notice)
+            engine.clearNotice()
         }
         .onChange(of: state.pasteRequest) {
             guard let request = state.pasteRequest else { return }

@@ -7,9 +7,11 @@ import UndertoneCore
 struct PlayerView: View {
     @Environment(PlayerEngine.self) private var engine
     @Environment(PanelState.self) private var state
+    @Environment(YTDLPService.self) private var service
     @State private var hovering = false
 
     private var revealed: Bool { hovering || state.forcedHover == "player" }
+    private var banner: Bool { ProblemBanner.isShowing(engine: engine, service: service) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -22,10 +24,11 @@ struct PlayerView: View {
             .frame(height: 211, alignment: .top)
             PlaybackFooter(revealed: revealed)
                 .frame(height: 40)
+            ProblemBanner()
             Spacer(minLength: 0)
             UpNextBar(revealed: revealed)
         }
-        .frame(width: PanelStyle.width, height: PanelStyle.playerHeight)
+        .frame(width: PanelStyle.width, height: PanelStyle.playerHeight + (banner ? PanelStyle.bannerHeight + 8 : 0))
         .contentShape(Rectangle())
         .onPanelHover { hovering = $0 }
         .overlay {

@@ -12,6 +12,8 @@ struct NothingPlayingView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
+            ProblemBanner()
+                .padding(.horizontal, -6)
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 0) {
                     Text("Play something from YouTube")

@@ -10,6 +10,8 @@ struct DrawerPage: View {
     var body: some View {
         VStack(spacing: 0) {
             MiniPlayerHeader()
+            ProblemBanner()
+                .padding(.bottom, 10)
             VStack(spacing: 10) {
                 Grabber(label: "Close drawer") { state.setDrawer(false) }
                 DrawerTabs()
