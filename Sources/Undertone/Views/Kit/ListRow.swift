@@ -61,7 +61,9 @@ struct ListRow: View {
         .contentShape(.rect(cornerRadius: PanelStyle.rowRadius))
         .onTapGesture(perform: onTap)
         .onPanelHover { hovering = $0 }
-        .focusable()
+        // Rows take focus only with Full Keyboard Access, like other macOS lists; otherwise the panel would focus
+        // (and highlight) the first row every time it opens.
+        .focusable(NSApp.isFullKeyboardAccessEnabled)
         .focused($focused)
         .focusEffectDisabled()
         .onKeyPress(.return) { onTap(); return .handled }

@@ -79,6 +79,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         case "save": engine.toggleSavedTrack()
         case "demo": showDemo(query)
+        case "drawer":
+            let raw = query.first(where: { $0.name == "tab" })?.value ?? PanelState.Tab.upNext.rawValue
+            panel.showDrawer(tab: PanelState.Tab(rawValue: raw) ?? .upNext)
         case "open": panel.show()
         case "settings": panel.show(settings: true)
         case "close": panel.hide()
@@ -87,7 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// `undertone://demo?screen=g2&hover=<title>`: loads the design screens' fixtures (see `DemoFixtures`) and shows the
+    /// `undertone://demo?screen=g2&hover=<title>&appearance=light`: loads the design screens' fixtures (see `DemoFixtures`) and shows the
     /// panel on that screen. Off unless the hidden `demoHarness` default is set; never touches real Saved/Recent/Up next.
     private func showDemo(_ query: [URLQueryItem]) {
         guard settings.demoHarnessEnabled else {
@@ -109,6 +112,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         downloaded: DemoFixtures.downloadedKeys, cacheBytes: 340 * 1_000_000)
         if demo.playbackFailed { engine.showDemoFailure() }
         service.simulate(demo.ytdlpBroken ? .outdated(YTDLPVersion(2025, 6, 30)) : .ready(YTDLPVersion(2026, 10, 22)))
+        // Screenshots in both modes without touching the system setting.
+        switch query.first(where: { $0.name == "appearance" })?.value {
+        case "light": NSApp.appearance = NSAppearance(named: .aqua)
+        case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
+        default: NSApp.appearance = nil
+        }
         let hover = query.first(where: { $0.name == "hover" })?.value
         panel.showDemo(screen, hover: hover.map { $0 == "player" ? $0 : DemoFixtures.item($0).cacheKey })
     }

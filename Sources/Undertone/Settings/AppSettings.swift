@@ -81,7 +81,7 @@ final class AppSettings {
     }
 
     /// The demo harness (`undertone://demo`) is off unless `defaults write com.jverissimo.undertone demoHarness -bool YES`.
-    var demoHarnessEnabled: Bool { defaults.bool(forKey: "demoHarness") }
+    var demoHarnessEnabled: Bool { UserDefaults.standard.bool(forKey: "demoHarness") }
 
     /// Demo fixtures must never overwrite real Saved, Recent or Up next: from here on every write goes to a
     /// throwaway domain (until relaunch).

@@ -46,6 +46,9 @@ struct MainView: View {
             Text("Undertone")
                 .font(.headline)
             Spacer()
+            IconButton(symbol: "list.bullet.below.rectangle", help: "Up next") {
+                state.setDrawer(true, tab: .upNext)
+            }
             IconButton(symbol: "gearshape", help: "Settings") {
                 state.showSettings(true)
             }

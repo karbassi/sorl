@@ -25,14 +25,46 @@ final class PanelState {
     var forcedHover: String?
     @ObservationIgnored weak var controller: PanelController?
 
+    /// The drawer's tabs.
+    enum Tab: String, CaseIterable, Identifiable {
+        case upNext = "up-next", saved, recent
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .upNext: return "Up next"
+            case .saved: return "Saved"
+            case .recent: return "Recent"
+            }
+        }
+    }
+
+    /// The drawer (mini player + tabs) is open over the player.
+    var drawerOpen = false
+    var tab: Tab = .upNext
+    /// Bumped to focus Up next's paste field (the + on the Up next bar).
+    var focusPasteField = 0
+    /// "Played (n)" expanded in Up next.
+    var playedExpanded = false
+
     func hide() { controller?.hide() }
 
     /// Switches pages with the slide, telling the controller when the exiting page is really gone.
     func showSettings(_ flag: Bool) {
         guard flag != showingSettings else { return }
+        transition { showingSettings = flag }
+    }
+
+    /// Opens or closes the drawer; it grows the panel to the drawer height.
+    func setDrawer(_ open: Bool, tab: Tab? = nil) {
+        if let tab { self.tab = tab }
+        guard open != drawerOpen else { return }
+        transition { drawerOpen = open }
+    }
+
+    private func transition(_ change: () -> Void) {
         controller?.pageTransitionWillStart()
         withAnimation(.snappy(duration: PanelController.pageTransition), completionCriteria: .removed) {
-            showingSettings = flag
+            change()
         } completion: { [weak controller] in
             controller?.pageTransitionEnded()
         }
@@ -177,11 +209,29 @@ final class PanelController {
         engine.setProgressTracking(true)
     }
 
-    /// Shows the panel on a demo harness screen. Each page reads `state.demoScreen` on appear.
+    /// Shows the panel on a demo harness screen.
     func showDemo(_ screen: DemoFixtures.Screen, hover: String?) {
         state.demoScreen = screen
         state.forcedHover = hover
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            switch screen {
+            case .f2, .g1, .g2, .g3, .g4, .g5, .g6, .g9, .f7drawer: state.drawerOpen = true; state.tab = .upNext
+            case .g7: state.drawerOpen = true; state.tab = .saved
+            case .g8: state.drawerOpen = true; state.tab = .recent
+            default: state.drawerOpen = false
+            }
+            state.playedExpanded = false
+        }
         show(settings: screen == .s1 || screen == .s1problem)
+    }
+
+    /// `undertone://drawer?tab=saved`: opens the drawer on a tab.
+    func showDrawer(tab: PanelState.Tab) {
+        if !isVisible { show() }
+        state.setDrawer(true, tab: tab)
+        state.tab = tab
     }
 
     func hide() {
@@ -430,8 +480,15 @@ final class PanelController {
     /// ⌘V/⌘C/⌘X/⌘A/⌘Z reach the focused text field even though the app is not active.
     private func handleKey(_ event: NSEvent) -> NSEvent? {
         guard event.window == panel else { return event }
+        // Esc steps back one level: Settings, then the drawer, then the panel.
         if event.keyCode == 53 {
-            if state.showingSettings { state.showSettings(false) } else { hide() }
+            if state.showingSettings {
+                state.showSettings(false)
+            } else if state.drawerOpen {
+                state.setDrawer(false)
+            } else {
+                hide()
+            }
             return nil
         }
         // The playback keys never apply while typing in a text field, and stay off with Full Keyboard Access, where
