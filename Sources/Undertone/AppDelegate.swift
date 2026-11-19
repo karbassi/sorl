@@ -114,7 +114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings.positions = PlaybackPositions(entries: recent.positions)
         settings.speed = .normal
         engine.setSpeed(.normal)
-        engine.setRepeatMode(screen == .f1 || screen == .f6 || screen == .f7 ? .all : .off)
+        engine.setRepeatMode(screen == .f1 || screen == .f1b || screen == .f6 || screen == .f7 ? .all : .off)
         engine.loadDemo(track: demo.track, upNext: demo.upNext, position: demo.position, playing: demo.playing,
                         downloaded: DemoFixtures.downloadedKeys, cacheBytes: 340 * 1_000_000)
         if demo.playbackFailed { engine.showDemoFailure() }

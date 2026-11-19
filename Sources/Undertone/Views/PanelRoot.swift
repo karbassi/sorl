@@ -23,6 +23,9 @@ struct PanelRoot: View {
             } else if state.drawerOpen {
                 page(height: PanelStyle.drawerHeight) { DrawerPage() }
                     .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+            } else if engine.track != nil || engine.isResolving || engine.upNext.current != nil {
+                page(height: PanelStyle.playerHeight) { PlayerView().toasts(toasts, bottomInset: 60) }
+                    .transition(pageTransition(from: .leading))
             } else {
                 page(height: nil) { MainView() }
                     .transition(pageTransition(from: .leading))
