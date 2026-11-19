@@ -85,13 +85,13 @@ final class StatusItemController: NSObject {
         playPause.isEnabled = engine.track != nil || settings.lastLink != nil
         menu.addItem(playPause)
         // Same rule as the panel's previous button: enabled with somewhere to go back to, or to restart the current one.
-        if engine.queue != nil || engine.skipsByChapter {
-            let noun = engine.skipsByChapter ? "Chapter" : "Track"
-            let previous = NSMenuItem(title: "Previous \(noun)", action: #selector(previousTrack), keyEquivalent: "")
+        if engine.track != nil {
+            let noun = engine.skipsByChapter ? " Chapter" : ""
+            let previous = NSMenuItem(title: "Previous\(noun)", action: #selector(previousTrack), keyEquivalent: "")
             previous.target = self
             previous.isEnabled = engine.hasPrevious || engine.currentTime >= 3
             menu.addItem(previous)
-            let next = NSMenuItem(title: "Next \(noun)", action: #selector(nextTrack), keyEquivalent: "")
+            let next = NSMenuItem(title: "Next\(noun)", action: #selector(nextTrack), keyEquivalent: "")
             next.target = self
             next.isEnabled = engine.hasNext
             menu.addItem(next)

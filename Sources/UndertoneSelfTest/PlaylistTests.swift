@@ -13,42 +13,36 @@ import Testing
         #expect(entries[3].url.absoluteString == "https://www.youtube.com/watch?v=thirdVideo1")
     }
 
-    @Test func queueSkipsUnavailableAndStartsAtVideo() {
+    @Test func replaceSkipsUnavailableAndStartsAtVideo() {
         let entries = PlaylistEntry.decodeLines(Data(Fixtures.playlistLines.utf8))
-        var queue = PlayQueue(entries: entries, startVideoID: "hFzg41j68hg")
-        #expect(queue.count == 3)
-        #expect(queue.title == "Blender Conference 2025")
-        #expect(queue.position == 2)
-        #expect(queue.current?.id == "hFzg41j68hg")
-        #expect(queue.hasNext && queue.hasPrevious)
-        #expect(queue.next?.id == "thirdVideo1")
-        #expect(queue.advance()?.id == "thirdVideo1")
-        #expect(queue.hasNext == false)
-        #expect(queue.advance() == nil)
-        #expect(queue.goBack()?.id == "hFzg41j68hg")
-        queue.jump(to: 0)
-        #expect(queue.position == 1)
-        queue.jump(to: 99)
-        #expect(queue.position == 1)
+        var q = UpNext()
+        let first = q.replace(with: entries, title: nil, sourceURL: nil, isMix: false, startVideoID: "hFzg41j68hg")
+        #expect(first?.videoID == "hFzg41j68hg")
+        #expect(q.sourceTitle == "Blender Conference 2025")
+        #expect(q.upcoming.map(\.videoID) == ["thirdVideo1"])   // entries before the start are left out
+        #expect(q.advance()?.videoID == "thirdVideo1")
+        #expect(q.advance() == nil)
+        #expect(q.goBack()?.videoID == "hFzg41j68hg")
     }
 
-    @Test func queueStartsAtIndexWhenNoVideo() {
+    @Test func replaceStartsAtIndexWhenNoVideo() {
         let entries = PlaylistEntry.decodeLines(Data(Fixtures.playlistLines.utf8))
-        #expect(PlayQueue(entries: entries, startIndex: 3).position == 3)
-        #expect(PlayQueue(entries: entries, startIndex: 42).position == 1)
-        #expect(PlayQueue(entries: entries, startVideoID: "missing", startIndex: 2).position == 2)
-        #expect(PlayQueue(entries: []).current == nil)
-        #expect(PlayQueue(entries: []).position == 0)
+        func start(_ v: String?, _ i: Int?) -> String? {
+            var q = UpNext()
+            return q.replace(with: entries, title: nil, sourceURL: nil, isMix: false, startVideoID: v, startIndex: i)?.videoID
+        }
+        #expect(start(nil, 42) == entries[0].id)
+        #expect(start("missing", 2) == "hFzg41j68hg")
+        var empty = UpNext()
+        #expect(empty.replace(with: [], title: nil, sourceURL: nil, isMix: false) == nil)
     }
 
     @Test func indexCountsTheFullPlaylistNotJustPlayableEntries() {
         // Fixture order: available, available, [Private video], available. `index=4` must land on the 4th
-        // entry (the one after the private video), i.e. position 3 of the 3 playable ones.
+        // entry (the one after the private video); `index=3` points at the private video itself: the next playable.
         let entries = PlaylistEntry.decodeLines(Data(Fixtures.playlistLines.utf8))
-        let queue = PlayQueue(entries: entries, startIndex: 4)
-        #expect(queue.current?.id == "thirdVideo1")
-        #expect(queue.position == 3)
-        // `index=3` points at the private video itself: land on the next playable one.
-        #expect(PlayQueue(entries: entries, startIndex: 3).current?.id == "thirdVideo1")
+        var q = UpNext()
+        #expect(q.replace(with: entries, title: nil, sourceURL: nil, isMix: false, startIndex: 4)?.videoID == "thirdVideo1")
+        #expect(q.replace(with: entries, title: nil, sourceURL: nil, isMix: false, startIndex: 3)?.videoID == "thirdVideo1")
     }
 }

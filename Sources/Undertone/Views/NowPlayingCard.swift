@@ -45,8 +45,8 @@ struct NowPlayingCard: View {
                             .lineLimit(1)
                     }
                 }
-                if let queue = engine.queue {
-                    Text("\(queue.position) / \(queue.count)\(queue.title.map { " · \($0)" } ?? "")")
+                if !engine.upNext.isEmpty {
+                    Text("\(engine.upNext.upcoming.count) up next\(engine.upNext.headerSource.map { " · \($0)" } ?? "")")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)

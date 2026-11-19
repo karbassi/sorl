@@ -25,10 +25,12 @@ final class AppSettings {
         static let ytdlpProbedAt = "ytdlpProbedAt"
         static let idleUnloadSeconds = "idleUnloadSeconds"
         static let positions = "playbackPositions"
+        static let upNext = "upNext"
     }
 
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var persistCacheTask: Task<Void, Never>?
+    @ObservationIgnored private var persistUpNextTask: Task<Void, Never>?
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -49,6 +51,26 @@ final class AppSettings {
         ytdlpProbedAt = defaults.object(forKey: Keys.ytdlpProbedAt) as? Date
         idleUnloadSeconds = defaults.object(forKey: Keys.idleUnloadSeconds) as? Double ?? 10 * 60
         positions = PlaybackPositions(decoding: defaults.data(forKey: Keys.positions) ?? Data())
+        upNext = UpNext(decoding: defaults.data(forKey: Keys.upNext) ?? Data())
+    }
+
+    /// What's playing, Up next and Played, so the queue survives relaunch. Written on a short debounce (drags and
+    /// pastes come in bursts) and flushed on quit.
+    @ObservationIgnored var upNext: UpNext {
+        didSet {
+            guard upNext != oldValue else { return }
+            persistUpNextTask?.cancel()
+            persistUpNextTask = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(500))
+                guard let self, !Task.isCancelled else { return }
+                self.flushUpNext()
+            }
+        }
+    }
+
+    func flushUpNext() {
+        persistUpNextTask?.cancel()
+        defaults.set((try? upNext.encoded()) ?? Data(), forKey: Keys.upNext)
     }
 
     var speed: PlaybackSpeed {
