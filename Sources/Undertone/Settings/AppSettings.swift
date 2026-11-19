@@ -26,6 +26,7 @@ final class AppSettings {
         static let idleUnloadSeconds = "idleUnloadSeconds"
         static let positions = "playbackPositions"
         static let upNext = "upNext"
+        static let showTotalTime = "showTotalTime"
     }
 
     @ObservationIgnored private let defaults: UserDefaults
@@ -52,6 +53,12 @@ final class AppSettings {
         idleUnloadSeconds = defaults.object(forKey: Keys.idleUnloadSeconds) as? Double ?? 10 * 60
         positions = PlaybackPositions(decoding: defaults.data(forKey: Keys.positions) ?? Data())
         upNext = UpNext(decoding: defaults.data(forKey: Keys.upNext) ?? Data())
+        showTotalTime = defaults.bool(forKey: Keys.showTotalTime)
+    }
+
+    /// The player's time toggle: total time instead of time left. Remembered across videos and relaunches.
+    var showTotalTime: Bool {
+        didSet { defaults.set(showTotalTime, forKey: Keys.showTotalTime) }
     }
 
     /// What's playing, Up next and Played, so the queue survives relaunch. Written on a short debounce (drags and

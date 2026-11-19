@@ -88,8 +88,6 @@ final class PlayerEngine {
     @ObservationIgnored private var pendingCommit: ((inout UpNext, Track) -> Void)?
     /// The Up next entry a Next is heading for while it resolves, so a second Next goes one further.
     @ObservationIgnored private var pendingTargetID: QueueItem.ID?
-    /// A pasted single video, recorded in Recent once it loads.
-    @ObservationIgnored private var recentOnLoad: URL?
     @ObservationIgnored private var consecutiveQueueSkips = 0
     @ObservationIgnored private var currentLink: MediaLink?
     @ObservationIgnored private var pastedLink: MediaLink?
@@ -270,12 +268,13 @@ final class PlayerEngine {
 
     func toggleSavedTrack() {
         guard let item = savableTrack else { return }
-        settings.saved.toggle(url: item.url, title: item.title)
+        settings.saved.toggle(url: item.url, title: item.title, kind: .video, duration: duration)
     }
 
     func toggleSavedQueue() {
         guard let item = savableQueue else { return }
-        settings.saved.toggle(url: item.url, title: item.title)
+        let count = upNext.played.count + (upNext.current == nil ? 0 : 1) + upNext.upcoming.count
+        settings.saved.toggle(url: item.url, title: item.title, kind: isMixLoaded ? .mix : .playlist, count: count)
     }
 
     // MARK: - Opening links
@@ -334,7 +333,6 @@ final class PlayerEngine {
 
     /// Plays one video now: what was playing moves to Played and Up next is kept.
     private func playSingle(_ link: MediaLink, startAt: Double?) {
-        recentOnLoad = link.resolvedURL
         resolveAndPlay(link, startAt: startAt) { q, track in
             q.playNow(QueueItem(videoID: link.videoID, url: link.resolvedURL, title: track.title, duration: track.duration))
         }
@@ -384,7 +382,8 @@ final class PlayerEngine {
                     throw YTDLPFailure.unavailable(message: "No playable videos in that playlist.")
                 }
                 let title = preview.sourceTitle ?? (isMix ? "Mix" : "Playlist")
-                self.settings.recent.record(url: link.resolvedURL, title: title)
+                self.settings.recent.record(url: link.resolvedURL, title: title, kind: isMix ? .mix : .playlist,
+                                            count: entries.filter(\.isAvailable).count)
                 let snapshot = self.upNext
                 let replacedCount = snapshot.upcoming.count
                 self.resolveAndPlay(first.link, startAt: self.settings.positions.start(forKey: first.cacheKey, linkStart: link.startTime)) { q, _ in
@@ -619,7 +618,8 @@ final class PlayerEngine {
         teardownItem()
         idleUnloadTask?.cancel()
         isIdleUnloaded = false
-        if lastLoadedKey != link.cacheKey {
+        let isNewTrack = lastLoadedKey != link.cacheKey
+        if isNewTrack {
             recoveryAttempts = 0            // a genuinely new track gets a fresh recovery budget
             lastLoadedKey = link.cacheKey
         }
@@ -656,10 +656,8 @@ final class PlayerEngine {
         if let startAt, startAt > 0 { seekPlayer(to: startAt, toleranceAfter: .positiveInfinity) }
         play()
 
-        if let url = recentOnLoad, url == link.resolvedURL {
-            settings.recent.record(url: url, title: track.title)
-        }
-        recentOnLoad = nil
+        // Recent tracks every video that plays, so it can show progress and a finished mark per video.
+        if isNewTrack { recordInRecent() }
         prefetchNext()
         if fromCache {
             if downloadKey != link.cacheKey { downloadTask?.cancel(); downloadTask = nil; downloadKey = nil }
@@ -832,6 +830,7 @@ final class PlayerEngine {
         if hasEnded {
             hasEnded = false
             currentTime = 0
+            recordInRecent()
             if replayFromAudioCache() { return }
             updateChapter(at: 0)
             player.seek(to: .zero)
@@ -863,13 +862,17 @@ final class PlayerEngine {
         setSpeed(speed.next)
     }
 
+    func cycleSpeedDown() {
+        setSpeed(speed.previous)
+    }
+
     func setRepeatMode(_ mode: RepeatMode) {
         repeatMode = mode
         settings.repeatMode = mode
     }
 
     func cycleRepeatMode() {
-        setRepeatMode(repeatMode.next(hasQueue: !upNext.isEmpty || !upNext.played.isEmpty))
+        setRepeatMode(repeatMode.next)
     }
 
     func setVolume(_ value: Float) {
@@ -988,7 +991,10 @@ final class PlayerEngine {
 
     private func trackEnded() {
         log.notice("ended \(self.track?.title ?? "", privacy: .public) repeat=\(self.repeatMode.rawValue, privacy: .public)")
-        if let key = currentLink?.cacheKey { settings.positions.forget(key) }   // finished: next time starts over
+        if let link = currentLink {
+            settings.positions.forget(link.cacheKey)   // finished: next time starts over
+            settings.recent.markFinished(link.resolvedURL)
+        }
         if repeatMode == .one {
             restartCurrentTrack()
         } else if let next = upNext.next {
@@ -1003,7 +1009,14 @@ final class PlayerEngine {
         }
     }
 
+    /// Puts the loaded video at the top of Recent (and clears its finished mark).
+    private func recordInRecent() {
+        guard let track, let link = currentLink else { return }
+        settings.recent.record(url: link.resolvedURL, title: track.title, kind: .video, duration: track.duration)
+    }
+
     private func restartCurrentTrack() {
+        recordInRecent()
         hasEnded = false
         currentTime = 0
         if replayFromAudioCache() { return }

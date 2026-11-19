@@ -223,9 +223,8 @@ final class FakeRunner: ProcessRunning, @unchecked Sendable {
     }
 
     @Test func speedCycle() {
-        #expect(PlaybackSpeed.normal.next == .faster)
-        #expect(PlaybackSpeed.faster.next == .double)
-        #expect(PlaybackSpeed.double.next == .normal)
+        let cycle = sequence(first: PlaybackSpeed.normal) { $0.next == .normal ? nil : $0.next }.map(\.rawValue)
+        #expect(cycle == [1, 1.25, 1.5, 1.75, 2, 0.75])
         #expect(PlaybackSpeed.double.label == "2×")
     }
 }
