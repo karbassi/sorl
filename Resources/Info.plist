@@ -5,17 +5,17 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>Undertone</string>
+	<string>Sorl</string>
 	<key>CFBundleExecutable</key>
-	<string>Undertone</string>
+	<string>Sorl</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.jverissimo.undertone</string>
+	<string>com.karbassi.sorl</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>Undertone</string>
+	<string>Sorl</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -30,10 +30,10 @@
 	<array>
 		<dict>
 			<key>CFBundleURLName</key>
-			<string>com.jverissimo.undertone.url</string>
+			<string>com.karbassi.sorl.url</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>undertone</string>
+				<string>sorl</string>
 			</array>
 		</dict>
 	</array>
