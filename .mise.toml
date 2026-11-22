@@ -47,5 +47,5 @@ description = "Read-only check of yt-dlp, deno and the build (changes nothing)"
 run = "./scripts/doctor.sh"
 
 [tasks.icon]
-description = "Regenerate Resources/AppIcon.icns from scripts/make-icon.swift"
-run = "swift scripts/make-icon.swift Resources/AppIcon.icns"
+description = "Regenerate Resources/AppIcon.icns from docs/brand/sorl-icon-1024.png"
+run = "./scripts/make-icon.sh Resources/AppIcon.icns"

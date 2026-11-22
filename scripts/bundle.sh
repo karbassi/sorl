@@ -33,6 +33,8 @@ printf 'APPL????' > "$OUT/Contents/PkgInfo"
 if [ -f Resources/AppIcon.icns ]; then
   cp Resources/AppIcon.icns "$OUT/Contents/Resources/AppIcon.icns"
 fi
+# Menu bar glyphs (template SVGs from docs/brand), loaded by StatusItemController.
+cp -R Resources/MenuBar "$OUT/Contents/Resources/MenuBar"
 # SwiftPM resource bundles (KeyboardShortcuts' localized strings): Bundle.module looks in Contents/Resources.
 for bundle in "$(dirname "$BIN")"/*.bundle; do
   [ -d "$bundle" ] && cp -R "$bundle" "$OUT/Contents/Resources/"
