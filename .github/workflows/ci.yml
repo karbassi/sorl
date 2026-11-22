@@ -2,9 +2,9 @@ name: CI
 
 on:
   pull_request:
-    branches: [personal]
+    branches: [main]
   push:
-    branches: [personal]
+    branches: [main]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -61,7 +61,7 @@ jobs:
       - name: Test
         run: mise run test
 
-      # Only pushes to personal save. PR runs can read personal's caches but not each other's, so a cache saved
+      # Only pushes to main save. PR runs can read main's caches but not each other's, so a cache saved
       # from a PR would only take up space (about 90 MB each, against the repo's 10 GB limit).
       - name: Save build cache
         if: github.event_name == 'push' && steps.cache.outputs.cache-hit != 'true'
