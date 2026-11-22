@@ -1,11 +1,11 @@
 #!/bin/bash
-# Builds Undertone with SwiftPM and assembles a signed (ad-hoc) .app bundle in build/.
+# Builds Sorl with SwiftPM and assembles a signed (ad-hoc) .app bundle in build/.
 # No Xcode required: works with the Command Line Tools alone.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-APP="Undertone"
-BUNDLE_ID="com.jverissimo.undertone"
+APP="Sorl"
+BUNDLE_ID="com.karbassi.sorl"
 VERSION="${VERSION:-$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || true)}"
 VERSION="${VERSION:-0.1.0}"
 BUILD_NUMBER="${BUILD_NUMBER:-$(git rev-list --count HEAD 2>/dev/null || echo 1)}"
@@ -16,7 +16,7 @@ ARCH_ARGS=""
 for arch in ${ARCHS:-}; do ARCH_ARGS="$ARCH_ARGS --arch $arch"; done
 
 echo "▸ swift build -c $CONFIG --product $APP$ARCH_ARGS"
-# Build only the app product: the UndertoneSelfTest target needs -enable-testing, which is debug-only.
+# Build only the app product: the SorlSelfTest target needs -enable-testing, which is debug-only.
 swift build -c "$CONFIG" --product "$APP" $ARCH_ARGS 2>&1 | grep -vE '^\s*$' | tail -n 3
 BIN="$(swift build -c "$CONFIG" --product "$APP" $ARCH_ARGS --show-bin-path)/$APP"
 [ -x "$BIN" ] || { echo "binary not found at $BIN" >&2; exit 1; }
@@ -24,7 +24,7 @@ BIN="$(swift build -c "$CONFIG" --product "$APP" $ARCH_ARGS --show-bin-path)/$AP
 echo "▸ assembling $OUT (v$VERSION build $BUILD_NUMBER)"
 rm -rf "$OUT"
 mkdir -p "$OUT/Contents/MacOS" "$OUT/Contents/Resources"
-# Keep Spotlight from indexing this throwaway build copy as a second "Undertone" app
+# Keep Spotlight from indexing this throwaway build copy as a second "Sorl" app
 # (the real install lives in /Applications). Harmless marker file Spotlight honours.
 touch build/.metadata_never_index
 cp "$BIN" "$OUT/Contents/MacOS/$APP"

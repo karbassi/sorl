@@ -2,7 +2,7 @@
 import Foundation
 import PackageDescription
 
-// Undertone builds with the Command Line Tools alone (no Xcode). The CLT keep Swift Testing in a framework
+// Sorl builds with the Command Line Tools alone (no Xcode). The CLT keep Swift Testing in a framework
 // directory SwiftPM does not search by default, so the self-test executable needs the search/rpath flags below.
 let cltFrameworks = "/Library/Developer/CommandLineTools/Library/Developer/Frameworks"
 let cltTestingLib = "/Library/Developer/CommandLineTools/Library/Developer/usr/lib" // lib_TestingInterop.dylib
@@ -18,7 +18,7 @@ let testingLinkFlags: [LinkerSetting] = usingCLT
     : []
 
 let package = Package(
-    name: "Undertone",
+    name: "Sorl",
     platforms: [.macOS(.v26)],
     dependencies: [
         // Vendored + minimally patched so it builds with the Command Line Tools alone (see Vendor/README.md).
@@ -27,18 +27,18 @@ let package = Package(
     targets: [
         // Pure-Swift core: link parsing, yt-dlp models/client, queue, formatting. No AppKit, unit-tested.
         .target(
-            name: "UndertoneCore",
+            name: "SorlCore",
             swiftSettings: [
                 .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
-                // Lets the self-test executable use `@testable import UndertoneCore`.
+                // Lets the self-test executable use `@testable import SorlCore`.
                 .unsafeFlags(["-enable-testing"], .when(configuration: .debug)),
             ]
         ),
         // The menu bar app. Everything here is main-actor by default (UI, AVPlayer, AppKit).
         .executableTarget(
-            name: "Undertone",
+            name: "Sorl",
             dependencies: [
-                "UndertoneCore",
+                "SorlCore",
                 .product(name: "KeyboardShortcuts", package: "KeyboardShortcuts"),
             ],
             swiftSettings: [
@@ -49,8 +49,8 @@ let package = Package(
         // `mise run test` runs this. It calls Swift Testing's own entry point, which `swift test` will not do
         // under the Command Line Tools. Runs every @Test in the target; honours flags like `--filter`.
         .executableTarget(
-            name: "UndertoneSelfTest",
-            dependencies: ["UndertoneCore"],
+            name: "SorlSelfTest",
+            dependencies: ["SorlCore"],
             swiftSettings: [.enableUpcomingFeature("NonisolatedNonsendingByDefault")] + testingSwiftFlags,
             linkerSettings: testingLinkFlags
         ),

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Read-only environment check for Undertone. Never installs or changes anything.
+# Read-only environment check for Sorl. Never installs or changes anything.
 set -uo pipefail
 MIN_YTDLP="2026.08.19"
 ok()   { printf '  \033[32m✓\033[0m %s\n' "$*"; }
@@ -27,5 +27,5 @@ DENO="$(command -v deno || ls /opt/homebrew/bin/deno /usr/local/bin/deno "$HOME/
 if [ -n "$DENO" ]; then ok "deno: $DENO ($("$DENO" --version 2>/dev/null | head -1 | cut -d' ' -f2))"; else warn "deno not found (brew install deno); yt-dlp may fall back to node if present"; fi
 echo
 echo "Build output"
-if [ -d build/Undertone.app ]; then ok "build/Undertone.app present ($(defaults read "$PWD/build/Undertone.app/Contents/Info.plist" CFBundleShortVersionString 2>/dev/null))"; else warn "not built yet: mise run build"; fi
-if [ -d /Applications/Undertone.app ]; then ok "/Applications/Undertone.app installed"; else warn "not installed: mise run install"; fi
+if [ -d build/Sorl.app ]; then ok "build/Sorl.app present ($(defaults read "$PWD/build/Sorl.app/Contents/Info.plist" CFBundleShortVersionString 2>/dev/null))"; else warn "not built yet: mise run build"; fi
+if [ -d /Applications/Sorl.app ]; then ok "/Applications/Sorl.app installed"; else warn "not installed: mise run install"; fi

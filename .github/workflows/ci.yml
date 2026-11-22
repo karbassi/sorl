@@ -51,7 +51,7 @@ jobs:
       - name: Build
         run: |
           set -o pipefail
-          swift build --product Undertone 2>&1 | tee build.log
+          swift build --product Sorl 2>&1 | tee build.log
           # Vendored code is not ours to fix; any other warning fails the build.
           if grep -E "warning: " build.log | grep -v Vendor; then
             echo "::error::Build has warnings outside Vendor"
