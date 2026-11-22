@@ -33,6 +33,11 @@ final class PlayerEngine {
     private(set) var audioCacheBytes: Int64 = 0
     /// Cache keys fully downloaded (rows show the download glyph). Refreshed with `audioCacheBytes`.
     private(set) var downloadedKeys: Set<String> = []
+    /// Where the loaded track's audio comes from: the network (and how much of it is on disk yet) or the audio cache.
+    private(set) var cacheState: AudioCacheState = .none
+    /// The stretches of the loaded item AVPlayer holds, as fractions of the duration. Refreshed only while the
+    /// panel is visible, on the scrubber's clock.
+    private(set) var bufferedRanges: [ClosedRange<Double>] = []
 
     var volume: Float {
         didSet {
@@ -221,6 +226,7 @@ final class PlayerEngine {
         audioCache.removeAll()
         audioCacheBytes = 0
         downloadedKeys = []
+        if cacheState != .playingFromCache { cacheState = .none }   // an open cached file keeps playing from disk
     }
 
     /// Downloads the loaded track into the audio cache once it has stayed loaded for `audioCacheDelay`.
@@ -229,8 +235,12 @@ final class PlayerEngine {
         downloadTask?.cancel()
         downloadTask = nil
         downloadKey = nil
-        guard track.isYouTube, !track.isExpired(margin: 15 * 60) else { return }
+        guard track.isYouTube, !track.isExpired(margin: 15 * 60) else {
+            cacheState = .none
+            return
+        }
         downloadKey = key
+        cacheState = .caching(0)
         let cache = audioCache
         downloadTask = Task { [weak self] in
             defer {
@@ -240,16 +250,43 @@ final class PlayerEngine {
                 }
             }
             try? await Task.sleep(for: Self.audioCacheDelay)
-            guard !Task.isCancelled, !cache.contains(key) else { return }
+            guard !Task.isCancelled else { return }
+            guard !cache.contains(key) else {
+                self?.cacheState = .cached
+                return
+            }
             do {
-                try await AudioDownloader.download(track, key: key, into: cache)
+                try await AudioDownloader.download(track, key: key, into: cache) { [weak self] written, total in
+                    Task { @MainActor [weak self] in self?.downloadProgressed(key: key, fraction: Double(written) / Double(total)) }
+                }
+                if self?.downloadKey == key { self?.cacheState = .cached }
                 self?.refreshAudioCacheSize()
             } catch is CancellationError {
             } catch let error as URLError where error.code == .cancelled {
             } catch {
+                if self?.downloadKey == key { self?.cacheState = .none }
                 self?.log.notice("audio cache download of \(key, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             }
         }
+    }
+
+    /// Progress hops to the main actor one chunk at a time, so a late report must not undo `.cached` or step backwards.
+    private func downloadProgressed(key: String, fraction: Double) {
+        guard downloadKey == key, case .caching(let shown) = cacheState, fraction > shown else { return }
+        cacheState = .caching(min(fraction, 1))
+    }
+
+    private func refreshBufferedRanges() {
+        var ranges: [ClosedRange<Double>] = []
+        if let item = player.currentItem, let d = duration, d > 0 {
+            for value in item.loadedTimeRanges {
+                let range = value.timeRangeValue
+                let start = range.start.seconds, end = range.end.seconds
+                guard start.isFinite, end.isFinite, end > start else { continue }
+                ranges.append(max(0, start / d)...min(1, max(0, end / d)))
+            }
+        }
+        if ranges != bufferedRanges { bufferedRanges = ranges }
     }
 
     // MARK: - Resume
@@ -724,7 +761,9 @@ final class PlayerEngine {
         // Recent tracks every video that plays, so it can show progress and a finished mark per video.
         if isNewTrack { recordInRecent() }
         prefetchNext()
+        bufferedRanges = []
         if fromCache {
+            cacheState = .playingFromCache
             if downloadKey != link.cacheKey { downloadTask?.cancel(); downloadTask = nil; downloadKey = nil }
         } else {
             scheduleAudioDownload(track, key: link.cacheKey)
@@ -793,11 +832,13 @@ final class PlayerEngine {
         progressTracking = enabled
         if enabled {
             currentTime = livePosition
+            refreshBufferedRanges()
             timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 2), queue: .main) { [weak self] time in
                 MainActor.assumeIsolated {
                     guard let self, time.isNumeric else { return }
                     self.currentTime = time.seconds
                     self.syncPlaybackState()
+                    self.refreshBufferedRanges()
                 }
             }
         } else if let timeObserver {
@@ -1023,6 +1064,8 @@ final class PlayerEngine {
         downloadTask = nil
         downloadKey = nil
         playingCachedFile = false
+        cacheState = .none
+        bufferedRanges = []
         teardownItem()
         player.pause()
         player.replaceCurrentItem(with: nil)
@@ -1156,6 +1199,7 @@ final class PlayerEngine {
             // A cached file that will not play is dropped, recovery or not; otherwise every later play loads it again.
             audioCache.remove(forKey: link.cacheKey)
             playingCachedFile = false
+            cacheState = .none
             refreshAudioCacheSize()
         }
         if recoveryAttempts < Self.maxRecoveries, let link = currentLink {
@@ -1210,6 +1254,28 @@ final class PlayerEngine {
         errorMessage = message
         errorSuggestion = suggestion
         log.error("\(message, privacy: .public)")
+    }
+}
+
+/// Where the loaded track's audio comes from, for the scrubber's cache band and glyph.
+enum AudioCacheState: Equatable {
+    /// Nothing loaded, or streaming something that will not be cached (another site, too large, a failed download).
+    case none
+    /// Streaming, with this fraction of the file on disk so far (0 until the delayed download starts).
+    /// Bytes stand in for time: YouTube's AAC is close enough to constant bitrate for a progress bar.
+    case caching(Double)
+    /// Streaming, and now fully on disk: the next play comes from the cache.
+    case cached
+    /// Playing the file on disk: no network at all.
+    case playingFromCache
+
+    /// How much of the track is on disk, 0...1.
+    var fraction: Double {
+        switch self {
+        case .none: 0
+        case .caching(let f): f
+        case .cached, .playingFromCache: 1
+        }
     }
 }
 
