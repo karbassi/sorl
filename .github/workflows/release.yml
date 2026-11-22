@@ -29,10 +29,10 @@ jobs:
           swift --version
           # CFBundleShortVersionString must be X.Y.Z, so a prerelease's suffix stays on the tag only.
           ARCHS="arm64 x86_64" VERSION="${version%%-*}" ./scripts/bundle.sh
-          lipo -archs build/Undertone.app/Contents/MacOS/Undertone
+          lipo -archs build/Sorl.app/Contents/MacOS/Sorl
 
       - name: Create zip
-        run: ditto -c -k --sequesterRsrc --keepParent build/Undertone.app Undertone.zip
+        run: ditto -c -k --sequesterRsrc --keepParent build/Sorl.app Sorl.zip
 
       - name: Create release
         env:
@@ -40,12 +40,12 @@ jobs:
         run: |
           # A rerun (e.g. after a failed tap dispatch) replaces the asset instead of failing.
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" Undertone.zip --clobber
+            gh release upload "$GITHUB_REF_NAME" Sorl.zip --clobber
             exit 0
           fi
           prerelease=""
           case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
-          gh release create "$GITHUB_REF_NAME" Undertone.zip \
+          gh release create "$GITHUB_REF_NAME" Sorl.zip \
             --title "$GITHUB_REF_NAME" \
             --generate-notes \
             $prerelease
@@ -59,4 +59,4 @@ jobs:
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           repository: karbassi/homebrew-tap
           event-type: release
-          client-payload: '{"cask": "undertone"}'
+          client-payload: '{"cask": "sorl"}'

@@ -49,7 +49,7 @@ These were settled during design review. Don't reopen them without asking.
   - F5: plays now.
 - **The paste field in the drawer is one step:** paste and it's added to the end. The toast offers "Play next instead".
 - **⏮ and ⏭ (the buttons, media keys and hotkeys) step through chapters first.** After the last chapter, ⏭ plays the next video. When a video has no chapters, the buttons are labelled Previous and Next and skip videos. The mini player's ⏭ follows the same rule.
-- **Play now with a playlist or Mix replaces Up next,** with the toast "Replaced 21 in up next · Undo". This applies to F6, a Saved or Recent row, F5 and `undertone://play`. Play next and Add to end cover merging.
+- **Play now with a playlist or Mix replaces Up next,** with the toast "Replaced 21 in up next · Undo". This applies to F6, a Saved or Recent row, F5 and `sorl://play`. Play next and Add to end cover merging.
 - **Clicking a row mid-queue** plays only that row. The rows above it stay queued.
 - **Playing a video from Saved or Recent** moves the interrupted video to Played and keeps Up next as it is.
 - **Duplicates are allowed in the queue,** so each entry needs its own id. Pasting the video that's already playing shows the toast "Already playing".
@@ -61,7 +61,7 @@ These were settled during design review. Don't reopen them without asking.
 - **Recent tracks finished items.** A finished item shows a full gray bar, and clicking it restarts it from 0:00.
 - **The star means Saved,** and it always saves the video playing, even inside a playlist. It fills blue, and the toast says "Added to Saved · Undo". A "Save playlist" button in the Up next header saves the playlist or Mix (today's feature, kept).
 - **F1's title is the video title.** The current chapter is the subtitle.
-- **Settings lives in the panel (proposal, mocked as S1).** Reached by a hover-only gear on F1 (orange dot at rest if yt-dlp has a problem), an always-visible gear on F5, ⌘, and the status-item menu. The panel grows to 560 with the mini player pinned; ‹ or Esc goes back. The downloads limit is a setting (1 / 2 / 5 / 10 GB, default 2). "Quit Undertone" sits in its footer and quits without asking. Full spec in [SETTINGS.md](SETTINGS.md).
+- **Settings lives in the panel (proposal, mocked as S1).** Reached by a hover-only gear on F1 (orange dot at rest if yt-dlp has a problem), an always-visible gear on F5, ⌘, and the status-item menu. The panel grows to 560 with the mini player pinned; ‹ or Esc goes back. The downloads limit is a setting (1 / 2 / 5 / 10 GB, default 2). "Quit Sorl" sits in its footer and quits without asking. Full spec in [SETTINGS.md](SETTINGS.md).
 - **Neutral copy.** People play podcasts and any YouTube video, not only music. Say "video", never song or track. Say Mix only when the item really is a YouTube Mix.
 - **No right-click menus.** Every row action is a visible hover control (and an accessibility action).
 - **Fixed heights.** Player 304pt. With the drawer open, 560pt, or less if the screen is short (`maxContentHeight` in `PanelController`). Every tab uses the same height. Lists scroll inside. The panel never resizes per item or per tab.
@@ -160,7 +160,7 @@ Dark mode was not designed. Derive it from system colors and check it with scree
 
 ## SwiftUI component map
 
-Build these as small views in `Sources/Undertone/Views/`, sharing styling through one `PanelStyle` (tokens above).
+Build these as small views in `Sources/Sorl/Views/`, sharing styling through one `PanelStyle` (tokens above).
 
 | Component | Used in | Notes |
 | --- | --- | --- |
@@ -189,7 +189,7 @@ Each row needs `accessibilityActions` that mirror its hover controls (Remove, Ad
 
 ## Model work the UI needs
 
-The core types live in `Sources/UndertoneCore/`. Today `PlayQueue` is a read-only snapshot that only lives in memory. It holds at most 500 entries, and a Mix is capped at 50.
+The core types live in `Sources/SorlCore/`. Today `PlayQueue` is a read-only snapshot that only lives in memory. It holds at most 500 entries, and a Mix is capped at 50.
 
 - **Mutable queue:** append, insert next, remove, move, and clear with undo. It is persisted so it survives relaunch.
 - **Saved** (`SavedLinks`): add and remove with undo. The star toggles membership for the current item.
@@ -199,7 +199,7 @@ The core types live in `Sources/UndertoneCore/`. Today `PlayQueue` is a read-onl
 
 ## Suggested build order
 
-Each step is its own PR targeting `personal`. Each UI step is verified per `CLAUDE.md` (screenshots via `undertone://` URLs and peekaboo).
+Each step is its own PR targeting `personal`. Each UI step is verified per `CLAUDE.md` (screenshots via `sorl://` URLs and peekaboo).
 
 1. `PanelStyle`, `ListRow`, `Toast`, `ScrollingList` (with a preview harness).
 2. Drawer shell: `MiniPlayerHeader`, `DrawerTabs`, fixed height, `SectionHeader`.

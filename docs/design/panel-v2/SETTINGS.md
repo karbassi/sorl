@@ -1,6 +1,6 @@
 # Settings in Panel v2: research and proposal
 
-Research into how comparable menu bar apps handle Settings and Quit, and a proposal for Undertone. Status: proposal, awaiting the product owner's decisions on the open questions.
+Research into how comparable menu bar apps handle Settings and Quit, and a proposal for Sorl. Status: proposal, awaiting the product owner's decisions on the open questions.
 
 ## Findings
 
@@ -16,12 +16,12 @@ Research into how comparable menu bar apps handle Settings and Quit, and a propo
 | 1Password 8 | Menu bar item › Settings | The main app window | Icon menu | |
 | Tailscale | Menu bar icon or app window | Inside the main window | ⌘Q asks: quit fully or stay in the menu bar | |
 | Amphetamine, CleanShot X | Icon menu "Settings…" | Separate window | Icon menu | The classic pattern. |
-| Itsycal | Gear under the calendar, ⌘, while showing, or right-click the icon | Separate window | Gear menu, ⌘Q, right-click | The closest analogue to Undertone. |
+| Itsycal | Gear under the calendar, ⌘, while showing, or right-click the icon | Separate window | Gear menu, ⌘Q, right-click | The closest analogue to Sorl. |
 
 **Conventions**
 - Apple's HIG puts Settings in the app menu with ⌘, and opens a settings window. It doesn't address menu bar extras.
 - In an `.accessory` app, a SwiftUI `Settings` scene and `SettingsLink` are unreliable. Getting the window to the front needs activation-policy hacks, and `openSettings` failed on macOS 26.
-- Undertone's panel also hides when it loses focus, so a separate window would close the panel anyway.
+- Sorl's panel also hides when it loses focus, so a separate window would close the panel anyway.
 
 ## Proposal: an in-panel Settings page
 
@@ -29,7 +29,7 @@ Research into how comparable menu bar apps handle Settings and Quit, and a propo
 - A gear in F1's hover footer, after volume.
 - A gear at the top right of F5. First launch is when yt-dlp is most likely missing, and F5 has no footer.
 - "Settings…  ⌘," in the status-item menu. Today it has only Open and Quit.
-- `undertone://settings`, which already exists.
+- `sorl://settings`, which already exists.
 
 **Where it opens**
 - The panel grows to the 560pt drawer height and swaps its content. Settings is not a fourth tab and not a separate window.
@@ -39,7 +39,7 @@ Research into how comparable menu bar apps handle Settings and Quit, and a propo
 **Getting back:** "‹" or Esc returns you to where you came from, either the player or the tab you were on.
 
 **Quit**
-- Pinned at the bottom of the Settings page, as "Quit Undertone".
+- Pinned at the bottom of the Settings page, as "Quit Sorl".
 - Also in the status-item menu and on ⌘Q.
 - No power button on the player.
 
@@ -71,7 +71,7 @@ Research into how comparable menu bar apps handle Settings and Quit, and a propo
 │ Next                             ⌃⌥→     │
 │ Previous                         ⌃⌥←     │
 │ Change speed                     ⌃⌥S     │
-│ Show Undertone                   ⌃⌥Y     │
+│ Show Sorl                   ⌃⌥Y     │
 │ Media keys work without setup.           │
 │                                          │
 │ Downloads                                │
@@ -87,7 +87,7 @@ Research into how comparable menu bar apps handle Settings and Quit, and a propo
 │   deno /opt/homebrew/bin/deno            │
 │ Recheck · Choose… · Use default          │
 ├──────────────────────────────────────────┤
-│ Undertone 0.4.0 (183)    Quit Undertone  │ pinned footer
+│ Sorl 0.4.0 (183)    Quit Sorl  │ pinned footer
 └──────────────────────────────────────────┘
 ```
 

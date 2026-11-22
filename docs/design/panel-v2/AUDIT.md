@@ -9,8 +9,8 @@ An independent review of the README, the PNGs, `flow.html` and the current code,
 - All 12 blockers stand.
 
 **Line references:**
-- `PE` means `Sources/Undertone/Player/PlayerEngine.swift`.
-- `PC` means `Sources/Undertone/PanelController.swift`.
+- `PE` means `Sources/Sorl/Player/PlayerEngine.swift`.
+- `PC` means `Sources/Sorl/PanelController.swift`.
 - `flow.html` numbers are file lines.
 
 ## A. State inventory
@@ -74,7 +74,7 @@ An independent review of the README, the PNGs, `flow.html` and the current code,
 ### Blockers
 
 1. **Next and Previous mean different things in different places.** F1 says "chapter", the mini player's ⏭ is always the next video, and in code a queue disables chapter-skip (PE:686). Media keys and hotkeys inherit whichever model is chosen.
-2. **"Play now" for a playlist or Mix has no defined effect on Up next.** This covers F6, Saved and Recent rows, F5 and `undertone://play`.
+2. **"Play now" for a playlist or Mix has no defined effect on Up next.** This covers F6, Saved and Recent rows, F5 and `sorl://play`.
 3. **Clicking a Saved or Recent row has undefined side effects.** Unknown: whether the current item goes to Played, whether the queue is kept, and whether clicking mid-queue moves the rows above it into Played.
 4. **Errors, notices, resolving and yt-dlp status have no place to appear** inside the fixed heights. A toast that disappears after 3.5s can't hold "brew upgrade yt-dlp" plus Copy and Recheck.
 5. **No Stop, Settings or Quit control.** Also unknown: whether Stop empties the persisted queue, and what shows after it.
@@ -88,7 +88,7 @@ An independent review of the README, the PNGs, `flow.html` and the current code,
 9. **Relaunch is undefined:** what shows before yt-dlp runs, and what Play does on a restored item.
 10. **⌘V per screen is inconsistent.** The README and flow disagree. The code only forwards ⌘V to a focused text field (selector at PC:453, forwarded at PC:462).
 11. **F6 can't show a title and length instantly.** `warm()` resolves only YouTube videos, after about 700ms plus yt-dlp. F6 needs loading, unknown and failed states.
-12. **The visual-check rule can't reach the new states.** No `undertone://` routes exist for tabs, F6, adding to the queue, Clear or toasts.
+12. **The visual-check rule can't reach the new states.** No `sorl://` routes exist for tabs, F6, adding to the queue, Clear or toasts.
 
 ### Should
 
@@ -125,7 +125,7 @@ An independent review of the README, the PNGs, `flow.html` and the current code,
     - The cache glyph's two states differ only by colour, which fails colour-blind sighted users. Its aria-labels differ, so VoiceOver is fine.
 27. **Dark Mode, Increase Contrast and Reduce Transparency are undesigned.** The tokens are opaque light hex values, while the code uses Liquid Glass.
 28. **Short screens:** `maxContentHeight` can drop to 160pt, below even the 304pt player. Unknown: which pinned areas shrink first.
-29. **A status item hidden by a menu-bar manager** may misplace the panel for the hotkey and for `undertone://open`. *(Can't verify statically; test at runtime.)*
+29. **A status item hidden by a menu-bar manager** may misplace the panel for the hotkey and for `sorl://open`. *(Can't verify statically; test at runtime.)*
 30. **The first click while the app is inactive.** *(corrected)* The hover fallback is already in the README; only the first-click behaviour is open.
 31. **Live streams:** no duration, no position saving, no caching. An upcoming live event is classified as unavailable.
 32. **Sleep, wake and AirPods disconnecting:** there's no handling in code and no "resuming" state.
