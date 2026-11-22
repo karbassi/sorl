@@ -133,15 +133,16 @@ final class StatusItemController: NSObject {
     }
 
     private func updateIcon() {
+        // The four brand glyphs differ by shape: idle (bump), loading (dots), playing (wave), paused (broken wave).
         let name: String
         if engine.isResolving {
-            name = "circle.dotted"
+            name = "loading"
         } else if engine.isPlaying {
-            name = "waveform"
+            name = "playing"
         } else if engine.track != nil {
-            name = "play.circle.fill"
+            name = "paused"
         } else {
-            name = "play.circle"
+            name = "idle"
         }
         let image = icon(named: name)
         if statusItem.button?.image !== image { statusItem.button?.image = image }
@@ -171,11 +172,15 @@ final class StatusItemController: NSObject {
         }
     }
 
-    /// Symbol images are built once; the scroll-wheel volume readout would otherwise create one per tick.
+    /// Glyphs are loaded once; the scroll-wheel volume readout would otherwise load one per tick. They ship as
+    /// 18 pt template SVGs in Contents/Resources/MenuBar (see docs/brand). A bare `swift run` has no bundle, so it
+    /// falls back to a system symbol.
     private func icon(named name: String) -> NSImage? {
         if let cached = iconCache[name] { return cached }
-        let image = NSImage(systemSymbolName: name, accessibilityDescription: "Sorl")?
-            .withSymbolConfiguration(.init(pointSize: 14, weight: .medium))
+        let image = Bundle.main.url(forResource: "sorl-glyph-\(name)", withExtension: "svg", subdirectory: "MenuBar")
+            .flatMap(NSImage.init(contentsOf:))
+            ?? NSImage(systemSymbolName: "waveform", accessibilityDescription: "Sorl")
+        image?.size = NSSize(width: 18, height: 18)
         image?.isTemplate = true
         iconCache[name] = image
         return image
