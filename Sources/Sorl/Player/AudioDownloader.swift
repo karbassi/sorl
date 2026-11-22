@@ -20,8 +20,10 @@ nonisolated enum AudioDownloader {
     private static let log = Logger(subsystem: "com.karbassi.sorl", category: "audio-cache")
 
     /// Off the main actor: the writes and the final move are blocking file I/O.
+    /// - Parameter progress: bytes written so far and the file's total, after each chunk.
     @concurrent
-    static func download(_ track: Track, key: String, into cache: AudioCache) async throws {
+    static func download(_ track: Track, key: String, into cache: AudioCache,
+                         progress: @escaping @Sendable (_ written: Int64, _ total: Int64) -> Void = { _, _ in }) async throws {
         let part = try cache.preparePartFile(forKey: key)
         let session = RangeFetch.makeSession(timeout: 30)
         defer { session.invalidateAndCancel() }
@@ -42,6 +44,7 @@ nonisolated enum AudioDownloader {
                 guard !data.isEmpty else { throw Failure.shortRead(at: offset) }
                 try handle.write(contentsOf: data)
                 offset += Int64(data.count)
+                progress(offset, total!)
             } while offset < total!
             try handle.close()
             try Task.checkCancellation()

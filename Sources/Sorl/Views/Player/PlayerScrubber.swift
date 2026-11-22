@@ -19,13 +19,20 @@ struct PlayerScrubber: View {
         VStack(spacing: 4) {
             GeometryReader { proxy in
                 let width = proxy.size.width - inset * 2
+                // A fraction's spot on the track; the ends stretch to the row's own edges, so a full band is a capsule.
+                let x = { (f: Double) -> CGFloat in f <= 0 ? 0 : f >= 1 ? proxy.size.width : inset + width * f }
                 ZStack(alignment: .leading) {
-                    // The cache band: how much of the video is saved for next time. Hidden until the cache state
-                    // lands (cache-bar-status); the slot keeps its place.
-                    if let cached = cachedFraction {
-                        Capsule().fill(.primary.opacity(0.035))
-                            .frame(width: proxy.size.width * cached, height: 18)
+                    // The cache band: how much of the video is saved for next time, filled from the start, plus what
+                    // AVPlayer has buffered. A faint knob-tall band under the track, like YouTube's buffer bar.
+                    Group {
+                        let cached = engine.cacheState.fraction
+                        if cached > 0 { band(from: 0, to: x(cached)) }
+                        ForEach(Array(engine.bufferedRanges.enumerated()), id: \.offset) { _, range in
+                            band(from: x(range.lowerBound), to: x(range.upperBound))
+                        }
                     }
+                    .animation(.easeOut(duration: 0.3), value: engine.cacheState)
+                    .accessibilityHidden(true)
                     Capsule().fill(.primary.opacity(0.14))
                         .frame(width: width, height: 6)
                         .offset(x: inset)
@@ -87,8 +94,11 @@ struct PlayerScrubber: View {
         }
     }
 
-    /// The share of the video saved for next time. Nil until the cache-bar-status API lands.
-    private var cachedFraction: Double? { nil }
+    private func band(from: CGFloat, to: CGFloat) -> some View {
+        Capsule().fill(.primary.opacity(0.035))
+            .frame(width: max(0, to - from), height: 18)
+            .offset(x: from)
+    }
 
     /// "15 minutes 4 seconds of 2 hours 31 minutes", plus "buffering" while stalled.
     private func accessibilityValue(shown: Double, duration: Double) -> String {
@@ -97,7 +107,11 @@ struct PlayerScrubber: View {
         formatter.allowedUnits = [.hour, .minute, .second]
         let position = formatter.string(from: max(0, shown)) ?? ""
         var value = duration > 0 ? "\(position) of \(formatter.string(from: duration) ?? "")" : position
-        if engine.isBuffering && !engine.isResolving { value += ", buffering" }
+        if engine.isBuffering && !engine.isResolving {
+            value += ", buffering"
+        } else if let status = CacheGlyph.status(engine) {
+            value += ", \(status.label.lowercased())"
+        }
         return value
     }
 }
@@ -131,18 +145,39 @@ struct RestMarks: View {
     }
 }
 
-/// The cache glyph by the time: shown once the playing video is downloaded and plays offline. The streaming and
-/// caching states come with the cache-bar-status API.
+/// The cache glyph by the time. While the copy for next time downloads, a gray ↓ with the share saved; once the
+/// whole video is on disk, the blue ⤓ the rows use for "downloaded". The two differ in shape, not only colour.
 struct CacheGlyph: View {
     @Environment(PlayerEngine.self) private var engine
 
+    struct Status: Equatable {
+        let label: String
+        let symbol: String
+        let downloaded: Bool
+    }
+
+    /// Nil while nothing is saved yet (the first 20 seconds, another site, a file too large to cache).
+    static func status(_ engine: PlayerEngine) -> Status? {
+        guard engine.track != nil, !engine.isResolving else { return nil }
+        switch engine.cacheState {
+        case .cached, .playingFromCache:
+            return Status(label: "Downloaded · plays offline", symbol: "arrow.down.to.line", downloaded: true)
+        case .caching(let fraction) where fraction > 0:
+            return Status(label: "Streaming · \(Int(fraction * 100))% saved for next time", symbol: "arrow.down",
+                          downloaded: false)
+        case .caching, .none:
+            return nil
+        }
+    }
+
     var body: some View {
-        if let key = engine.upNext.current?.cacheKey ?? engine.track?.id, engine.downloadedKeys.contains(key) {
-            Image(systemName: "arrow.down.to.line")
+        if let status = Self.status(engine) {
+            Image(systemName: status.symbol)
                 .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(status.downloaded ? AnyShapeStyle(PanelStyle.accent) : AnyShapeStyle(PanelStyle.secondary))
                 .frame(width: 12, height: 12)
-                .help("Downloaded, plays offline")
-                .accessibilityLabel("Downloaded, plays offline")
+                .help(status.label)
+                .accessibilityLabel(status.label)
         }
     }
 }
