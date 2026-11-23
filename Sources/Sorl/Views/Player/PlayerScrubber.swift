@@ -23,12 +23,15 @@ struct PlayerScrubber: View {
                 let x = { (f: Double) -> CGFloat in f <= 0 ? 0 : f >= 1 ? proxy.size.width : inset + width * f }
                 ZStack(alignment: .leading) {
                     // The cache band: how much of the video is saved for next time, filled from the start, plus what
-                    // AVPlayer has buffered. A faint knob-tall band under the track, like YouTube's buffer bar.
+                    // AVPlayer has buffered. A faint knob-tall band under the track, like YouTube's buffer bar. Once the
+                    // whole file is on disk it would only be a full-width capsule, so it fades out and the ⤓ says it.
                     Group {
                         let cached = engine.cacheState.fraction
-                        if cached > 0 { band(from: 0, to: x(cached)) }
-                        ForEach(Array(engine.bufferedRanges.enumerated()), id: \.offset) { _, range in
-                            band(from: x(range.lowerBound), to: x(range.upperBound))
+                        if cached < 1 {
+                            if cached > 0 { band(from: 0, to: x(cached)) }
+                            ForEach(Array(engine.bufferedRanges.enumerated()), id: \.offset) { _, range in
+                                band(from: x(range.lowerBound), to: x(range.upperBound))
+                            }
                         }
                     }
                     .animation(.easeOut(duration: 0.3), value: engine.cacheState)
