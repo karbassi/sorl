@@ -176,12 +176,6 @@ import Testing
         #expect(UpNext(upcoming: [Self.item("a")]).nowPlayingPosition?.count == 2)
     }
 
-    @Test func sharesUpcomingNeedsCurrentAndSomethingNext() {
-        #expect(Self.queue(["a"]).sharesUpcoming)
-        #expect(!Self.queue([]).sharesUpcoming)
-        #expect(!UpNext(upcoming: [Self.item("a")]).sharesUpcoming)
-    }
-
     @Test func findsItemsAnywhere() {
         var q = UpNext(current: Self.item("p"), upcoming: ["now", "a"].map { Self.item($0) })
         _ = q.advance()

@@ -113,9 +113,6 @@ public struct UpNext: Codable, Equatable, Sendable {
         return (played.count, played.count + 1 + upcoming.count)
     }
 
-    /// Whether there are upcoming items to share as the system queue: a current item and something after it.
-    public var sharesUpcoming: Bool { current != nil && !upcoming.isEmpty }
-
     /// Finds an item anywhere in the queue: current, Up next or Played.
     public func item(withID id: QueueItem.ID) -> QueueItem? {
         if current?.id == id { return current }

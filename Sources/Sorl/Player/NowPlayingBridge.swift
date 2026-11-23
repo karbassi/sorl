@@ -124,6 +124,10 @@ final class NowPlayingBridge {
             info[MPNowPlayingInfoPropertyPlaybackQueueIndex] = position.index
             info[MPNowPlayingInfoPropertyPlaybackQueueCount] = position.count
         }
+        // Ties this info to the queue's current item, so the system keeps applying its updates once the queue is shared.
+        if let id = upNext.current?.id.uuidString {
+            info[MPNowPlayingInfoPropertyExternalContentIdentifier] = id
+        }
         if let chapter = engine.chapter, let index = track.chapters.firstIndex(of: chapter) {
             info[MPNowPlayingInfoPropertyChapterNumber] = index
             info[MPNowPlayingInfoPropertyChapterCount] = track.chapters.count
@@ -135,12 +139,12 @@ final class NowPlayingBridge {
             loadArtwork(for: track)
         }
         // With a queue data source, the system reads the playing item's details from it, artwork and album included.
-        // Set the info after it, so removing the data source hands Now Playing back to this dictionary.
-        queue.publish(upNext.sharesUpcoming ? .init(upNext: upNext, title: track.title, subtitle: subtitle, album: album,
+        queue.publish(upNext.current != nil ? .init(upNext: upNext, title: track.title, subtitle: subtitle, album: album,
                                                     duration: duration, artwork: currentArtwork,
                                                     elapsed: engine.livePosition,
                                                     rate: rate,
-                                                    defaultRate: engine.speed.rawValue) : nil,
+                                                    defaultRate: engine.speed.rawValue,
+                                                    info: info.filter { $0.key != MPMediaItemPropertyArtwork } as NSDictionary) : nil,
                       to: center)
         center.nowPlayingInfo = info
         center.playbackState = engine.isPlaying ? .playing : .paused

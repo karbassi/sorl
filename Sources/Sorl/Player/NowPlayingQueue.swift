@@ -13,7 +13,7 @@ import SorlCore
 /// `setPlaybackQueueDataSource:`, the hook Apple's own players use. Every private call is checked first; when one is
 /// missing, Sorl publishes the queue position and length only, as before.
 nonisolated final class NowPlayingQueue: NSObject, PlaybackQueueDataSource, @unchecked Sendable {
-    /// What the queue shows. The current item takes the title, subtitle and length published as Now Playing.
+    /// What the queue shows. The current item takes the details published as Now Playing.
     /// `@unchecked`: `MPMediaItemArtwork` isn't marked Sendable, but it's never mutated and its image closure is.
     struct Snapshot: Equatable, @unchecked Sendable {
         var upNext: UpNext
@@ -22,11 +22,21 @@ nonisolated final class NowPlayingQueue: NSObject, PlaybackQueueDataSource, @unc
         var album: String?
         var duration: Double?
         var artwork: MPMediaItemArtwork?
-        /// Once a data source is installed the system takes the playing position from the current item, not from the
-        /// center's `nowPlayingInfo`.
+        /// Once a data source is installed, the system takes the playing item's position and the rest of
+        /// `nowPlayingInfo` (chapters, queue index) from the current content item, not from the center.
         var elapsed: Double
         var rate: Double
         var defaultRate: Double
+        /// `nowPlayingInfo` without its artwork, which MediaRemote can't encode inside a content item.
+        var info: NSDictionary
+    }
+
+    /// `@unchecked`: the content item is only touched under the lock or on the main actor, as MediaPlayer expects.
+    private struct State: @unchecked Sendable {
+        var snapshot: Snapshot?
+        /// The current item as handed to the system. It keeps this object and listens for its changes, so updates
+        /// go to this same object; a new one with the same identifier is ignored.
+        var current: MPContentItem?
     }
 
     private static let setDataSource = NSSelectorFromString("setPlaybackQueueDataSource:")
@@ -37,53 +47,80 @@ nonisolated final class NowPlayingQueue: NSObject, PlaybackQueueDataSource, @unc
         center.responds(to: setDataSource) && center.responds(to: invalidate)
     }
 
-    // MediaPlayer reads the queue on its own queue.
-    private let snapshot = OSAllocatedUnfairLock<Snapshot?>(initialState: nil)
+    /// Main actor only, from `publish`.
+    private var installed = false
 
-    /// Shares `next` (nil stops sharing) and tells the system the queue changed.
+    // MediaPlayer reads the queue on its own queue.
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    /// Shares `next` (nil shares nothing). Changes to the playing item update its content item in place; only a changed
+    /// queue makes the system reread it.
     func publish(_ next: Snapshot?, to center: MPNowPlayingInfoCenter) {
-        let previous = snapshot.withLock { state in defer { state = next }; return state }
+        let (previous, current) = state.withLockUnchecked { state in
+            let previous = state.snapshot
+            state.snapshot = next
+            if next?.upNext.current?.id != previous?.upNext.current?.id { state.current = nil }
+            return (previous, state.current)
+        }
         guard next != previous, Self.isSupported(by: center) else { return }
-        if (previous == nil) != (next == nil) { center.perform(Self.setDataSource, with: next == nil ? nil : self) }
-        if next != nil { center.perform(Self.invalidate) }
+        if let next, let current { Self.apply(next, to: current) }
+        // Installed once and kept: removing a data source and setting it again leaves Now Playing empty.
+        if next != nil, !installed {
+            installed = true
+            center.perform(Self.setDataSource, with: self)
+        }
+        if let next, next.upNext != previous?.upNext { center.perform(Self.invalidate) }
     }
 
     @objc(nowPlayingInfoCenter:contentItemIDForOffset:)
     func contentItemID(_ center: MPNowPlayingInfoCenter, forOffset offset: Int) -> String? {
-        snapshot.withLock { $0?.upNext.item(atOffset: offset)?.id.uuidString }
+        state.withLock { $0.snapshot?.upNext.item(atOffset: offset)?.id.uuidString }
     }
 
     @objc(nowPlayingInfoCenter:contentItemIDsFromOffset:toOffset:nowPlayingIndex:)
     func contentItemIDs(_ center: MPNowPlayingInfoCenter, from: Int, to: Int,
                         nowPlayingIndex: UnsafeMutablePointer<Int>?) -> [String] {
-        let (items, currentIndex) = snapshot.withLock { $0?.upNext.items(fromOffset: from, toOffset: to) } ?? ([], nil)
+        let (items, currentIndex) = state.withLock { $0.snapshot?.upNext.items(fromOffset: from, toOffset: to) } ?? ([], nil)
         nowPlayingIndex?.pointee = currentIndex ?? NSNotFound
         return items.map(\.id.uuidString)
     }
 
     @objc(nowPlayingInfoCenter:contentItemForID:)
     func contentItem(_ center: MPNowPlayingInfoCenter, forID identifier: String) -> MPContentItem? {
-        guard let id = UUID(uuidString: identifier),
-              let (item, snapshot) = snapshot.withLock({ state in state.flatMap { s in s.upNext.item(withID: id).map { ($0, s) } } }),
-              let content = Self.makeContentItem(identifier) else { return nil }
-        let isCurrent = item.id == snapshot.upNext.current?.id
-        content.title = isCurrent ? snapshot.title : item.title
+        guard let id = UUID(uuidString: identifier) else { return nil }
+        return state.withLockUnchecked { state -> MPContentItem? in
+            guard let snapshot = state.snapshot, let item = snapshot.upNext.item(withID: id) else { return nil }
+            if item.id == snapshot.upNext.current?.id {
+                if let current = state.current { return current }
+                guard let content = Self.makeContentItem(identifier) else { return nil }
+                Self.apply(snapshot, to: content)
+                state.current = content
+                return content
+            }
+            guard let content = Self.makeContentItem(identifier) else { return nil }
+            content.title = item.title
+            content.isPlayable = true
+            Self.set(item.duration, "duration", on: content)
+            return content
+        }
+    }
+
+    /// Writes the playing item's details onto its content item; the item reports the change to the system itself.
+    private static func apply(_ snapshot: Snapshot, to content: MPContentItem) {
+        set(snapshot.info, "nowPlayingInfo", on: content)
+        content.title = snapshot.title
         content.isPlayable = true
         // Marks the item as having a cover; the system then fetches it through `artwork(_:for:size:completion:)`.
-        if isCurrent, let artwork = snapshot.artwork {
+        if let artwork = snapshot.artwork, content.artwork !== artwork {
             content.artwork = artwork
-            // A new identifier when the cover arrives after the item was first read, so the system fetches it again.
-            Self.set(String(UInt(bitPattern: ObjectIdentifier(artwork).hashValue)), "artworkIdentifier", on: content)
+            // Known gap: the system doesn't fetch a cover that arrives after it first read the item.
         }
-        if isCurrent {
-            Self.set(snapshot.defaultRate, "defaultPlaybackRate", on: content)
-            Self.set(snapshot.rate, "playbackRate", on: content)
-            Self.set(snapshot.elapsed, "elapsedTime", on: content)
-        }
-        Self.set(isCurrent ? snapshot.album : nil, "albumName", on: content)
-        Self.set(isCurrent ? snapshot.subtitle : nil, "trackArtistName", on: content)
-        Self.set(isCurrent ? snapshot.duration ?? item.duration : item.duration, "duration", on: content)
-        return content
+        set(snapshot.album, "albumName", on: content)
+        set(snapshot.subtitle, "trackArtistName", on: content)
+        set(snapshot.duration ?? snapshot.upNext.current?.duration, "duration", on: content)
+        set(snapshot.defaultRate, "defaultPlaybackRate", on: content)
+        set(snapshot.rate, "playbackRate", on: content)
+        set(snapshot.elapsed, "elapsedTime", on: content)
     }
 
     /// The playing item's cover. With a data source installed, the system asks here instead of reading the artwork in
@@ -92,7 +129,7 @@ nonisolated final class NowPlayingQueue: NSObject, PlaybackQueueDataSource, @unc
     func artwork(_ center: MPNowPlayingInfoCenter, for item: MPContentItem, size: CGSize,
                  completion: @escaping @convention(block) (AnyObject?, AnyObject?) -> Void) {
         let id = item.identifier
-        let current = snapshot.withLock { $0 }
+        let current = state.withLock { $0.snapshot }
         let art = current?.upNext.current?.id.uuidString == id ? current?.artwork : nil
         completion(art?.image(at: size), nil)
     }
