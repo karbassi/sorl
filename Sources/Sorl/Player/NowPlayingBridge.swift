@@ -110,11 +110,12 @@ final class NowPlayingBridge {
         } else {
             loadArtwork(for: track)
         }
-        center.nowPlayingInfo = info
         // With a queue data source, the system reads the playing item's details from it, artwork and album included.
+        // Set the info after it, so removing the data source hands Now Playing back to this dictionary.
         queue.publish(upNext.sharesUpcoming ? .init(upNext: upNext, title: track.title, subtitle: subtitle, album: album,
-                                                    duration: duration, artwork: currentArtwork) : nil,
+                                                    duration: duration, artwork: currentArtwork, info: info as NSDictionary) : nil,
                       to: center)
+        center.nowPlayingInfo = info
         center.playbackState = engine.isPlaying ? .playing : .paused
         commands.nextTrackCommand.isEnabled = engine.hasNext
         commands.previousTrackCommand.isEnabled = engine.hasPrevious
