@@ -11,6 +11,8 @@ final class StatusItemController: NSObject {
     private var flashTask: Task<Void, Never>?
     private var flashText: String?
     private var iconCache: [String: NSImage] = [:]
+    /// The playable link on the drag currently over the icon, if any.
+    private var dragLink: MediaLink?
 
     init(engine: PlayerEngine, panel: PanelController, settings: AppSettings) {
         self.engine = engine
@@ -30,6 +32,51 @@ final class StatusItemController: NSObject {
         updateIcon()
         observe()
         installScrollVolume()
+        installLinkDrop()
+    }
+
+    // MARK: - Dropping a link on the icon
+
+    /// Dragging a link onto the menu bar icon plays it; holding Option adds it to the end of Up next instead. The
+    /// status item's window takes the drag and hands it to its delegate (NSWindow forwards NSDraggingDestination).
+    private func installLinkDrop() {
+        guard let window = statusItem.button?.window else { return }
+        window.registerForDraggedTypes([.URL, .fileURL, .string])
+        window.delegate = self
+    }
+
+    /// The playable link on a drag's pasteboard: web URLs first, then `.webloc` files, then plain text.
+    private func droppedLink(_ sender: NSDraggingInfo) -> MediaLink? {
+        let pasteboard = sender.draggingPasteboard
+        var candidates: [String] = []
+        for url in pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL] ?? [] {
+            if url.isFileURL {
+                guard url.pathExtension.lowercased() == "webloc", let data = try? Data(contentsOf: url),
+                      let target = DroppedLink.weblocURL(from: data) else { continue }
+                candidates.append(target)
+            } else {
+                candidates.append(url.absoluteString)
+            }
+        }
+        if let text = pasteboard.string(forType: .string) { candidates.append(text) }
+        return DroppedLink.link(from: candidates)
+    }
+
+    /// Called once per drag, on entry: reading the pasteboard (and a `.webloc` off disk) on every mouse move is waste.
+    private func beginDrag(_ sender: NSDraggingInfo) -> NSDragOperation {
+        dragLink = droppedLink(sender)
+        return dragOperation(sender)
+    }
+
+    private func dragOperation(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard dragLink != nil else { return [] }
+        let allowed = sender.draggingSourceOperationMask
+        return [NSDragOperation.copy, .link, .generic].first(where: allowed.contains) ?? []
+    }
+
+    private func endDrag() {
+        dragLink = nil
+        statusItem.button?.highlight(false)
     }
 
     /// Scrolling over the menu bar icon adjusts the volume; swipe/roll up = louder, regardless of the
@@ -190,5 +237,34 @@ final class StatusItemController: NSObject {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count > limit else { return trimmed }
         return String(trimmed.prefix(limit - 1)).trimmingCharacters(in: .whitespaces) + "…"
+    }
+}
+
+extension StatusItemController: NSWindowDelegate, NSDraggingDestination {
+    func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        let operation = beginDrag(sender)
+        statusItem.button?.highlight(!operation.isEmpty)
+        return operation
+    }
+
+    func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        dragOperation(sender)
+    }
+
+    func draggingExited(_ sender: NSDraggingInfo?) {
+        endDrag()
+    }
+
+    func draggingEnded(_ sender: NSDraggingInfo) {
+        endDrag()
+    }
+
+    func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        let link = dragLink ?? droppedLink(sender)
+        endDrag()
+        guard let link else { return false }
+        let addToEnd = NSEvent.modifierFlags.contains(.option)
+        engine.open(link, mode: addToEnd ? .addToEnd : .playNow)
+        return true
     }
 }
