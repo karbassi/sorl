@@ -7,6 +7,7 @@ final class NowPlayingBridge {
     private let engine: PlayerEngine
     private let center = MPNowPlayingInfoCenter.default()
     private let commands = MPRemoteCommandCenter.shared()
+    private let queue = NowPlayingQueue()
     private var artwork: MPMediaItemArtwork?
     private var artworkTrackID: String?
 
@@ -79,6 +80,7 @@ final class NowPlayingBridge {
 
     func refresh() {
         guard let track = engine.track else {
+            queue.publish(nil, to: center)
             center.nowPlayingInfo = nil
             center.playbackState = .stopped
             return
@@ -91,13 +93,16 @@ final class NowPlayingBridge {
             MPNowPlayingInfoPropertyDefaultPlaybackRate: engine.speed.rawValue,
         ]
         // The subtitle line: in a DJ mix, the chapter (the song playing) rather than the channel.
-        if let subtitle = engine.chapter?.title ?? track.channel { info[MPMediaItemPropertyArtist] = subtitle }
-        if let duration = engine.duration, duration > 0 { info[MPMediaItemPropertyPlaybackDuration] = duration }
-        let queue = engine.upNext
-        if !queue.isEmpty || !queue.played.isEmpty {
-            if let title = queue.headerSource { info[MPMediaItemPropertyAlbumTitle] = title }
-            info[MPNowPlayingInfoPropertyPlaybackQueueIndex] = queue.played.count
-            info[MPNowPlayingInfoPropertyPlaybackQueueCount] = queue.played.count + 1 + queue.upcoming.count
+        let subtitle = engine.chapter?.title ?? track.channel
+        if let subtitle { info[MPMediaItemPropertyArtist] = subtitle }
+        let duration = engine.duration.flatMap { $0 > 0 ? $0 : nil }
+        if let duration { info[MPMediaItemPropertyPlaybackDuration] = duration }
+        let upNext = engine.upNext
+        let sharesQueue = upNext.current != nil && (!upNext.isEmpty || !upNext.played.isEmpty)
+        if sharesQueue {
+            if let title = upNext.headerSource { info[MPMediaItemPropertyAlbumTitle] = title }
+            info[MPNowPlayingInfoPropertyPlaybackQueueIndex] = upNext.played.count
+            info[MPNowPlayingInfoPropertyPlaybackQueueCount] = upNext.played.count + 1 + upNext.upcoming.count
         }
         if let artwork, artworkTrackID == track.id {
             info[MPMediaItemPropertyArtwork] = artwork
@@ -105,6 +110,8 @@ final class NowPlayingBridge {
             loadArtwork(for: track)
         }
         center.nowPlayingInfo = info
+        queue.publish(sharesQueue ? .init(upNext: upNext, title: track.title, subtitle: subtitle, duration: duration) : nil,
+                      to: center)
         center.playbackState = engine.isPlaying ? .playing : .paused
         commands.nextTrackCommand.isEnabled = engine.hasNext
         commands.previousTrackCommand.isEnabled = engine.hasPrevious

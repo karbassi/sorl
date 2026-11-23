@@ -86,6 +86,32 @@ public struct UpNext: Codable, Equatable, Sendable {
 
     public func index(of id: QueueItem.ID) -> Int? { upcoming.firstIndex { $0.id == id } }
 
+    // MARK: - Offsets
+
+    /// The whole queue by offset from what's playing, as the system Now Playing queue counts it: 0 is the current item,
+    /// -1 the newest played, 1 the first of Up next. Nil off either end, or with nothing current.
+    public func item(atOffset offset: Int) -> QueueItem? {
+        guard let current else { return nil }
+        if offset == 0 { return current }
+        if offset > 0 { return offset <= upcoming.count ? upcoming[offset - 1] : nil }
+        return -offset <= played.count ? played[played.count + offset] : nil
+    }
+
+    /// The offsets `from...to` that exist, in order, and where the current item sits among them (nil if outside).
+    public func items(fromOffset from: Int, toOffset to: Int) -> (items: [QueueItem], currentIndex: Int?) {
+        guard current != nil, from <= to else { return ([], nil) }
+        let lower = max(from, -played.count), upper = min(to, upcoming.count)
+        guard lower <= upper else { return ([], nil) }
+        let items = (lower...upper).compactMap { item(atOffset: $0) }
+        return (items, (lower...upper).contains(0) ? -lower : nil)
+    }
+
+    /// Finds an item anywhere in the queue: current, Up next or Played.
+    public func item(withID id: QueueItem.ID) -> QueueItem? {
+        if current?.id == id { return current }
+        return upcoming.first { $0.id == id } ?? played.first { $0.id == id }
+    }
+
     // MARK: - Playing
 
     /// `item` becomes the current one; what was playing moves to Played. Up next is untouched.
