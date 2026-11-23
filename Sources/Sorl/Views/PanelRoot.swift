@@ -19,18 +19,20 @@ struct PanelRoot: View {
             PanelStyle.panelBackground
             if state.showingSettings {
                 page(height: PanelStyle.drawerHeight) { SettingsView() }
-                    .transition(pageTransition(from: .trailing))
+                    .transition(sheetTransition)
+                    .zIndex(1)   // above the player as it fades in, so the drop back down shows
             } else if state.drawerOpen {
                 page(height: PanelStyle.drawerHeight) { DrawerPage() }
-                    .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+                    .transition(sheetTransition)
+                    .zIndex(1)   // above the player as it fades in, so the drop back down shows
             } else if engine.track != nil || engine.isResolving || engine.upNext.current != nil {
                 page(height: PanelStyle.playerHeight + (ProblemBanner.isShowing(engine: engine, service: service) ? PanelStyle.bannerHeight + 8 : 0)) {
                     PlayerView().toasts(toasts, bottomInset: 60)
                 }
-                    .transition(pageTransition(from: .leading))
+                    .transition(.opacity)
             } else {
                 page(height: nil) { NothingPlayingView().toasts(toasts) }
-                    .transition(pageTransition(from: .leading))
+                    .transition(.opacity)
             }
         }
         // The window is sized to the page; pinning it to the top keeps any transient mismatch at the bottom.
@@ -64,9 +66,10 @@ struct PanelRoot: View {
         .onChange(of: state.showingSettings) { toasts.dismiss() }
     }
 
-    /// Pages slide in from the side; with Reduce Motion they only cross-fade.
-    private func pageTransition(from edge: Edge) -> AnyTransition {
-        reduceMotion ? .opacity : .move(edge: edge).combined(with: .opacity)
+    /// Settings and the drawer rise from the bottom and drop back down; the player and Nothing playing beneath them
+    /// only cross-fade. With Reduce Motion everything cross-fades.
+    private var sheetTransition: AnyTransition {
+        reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity)
     }
 
     /// A page at a fixed `height` (capped to what fits on the screen), or its natural height when nil. Reports its
