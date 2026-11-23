@@ -61,6 +61,19 @@ jobs:
       - name: Test
         run: mise run test
 
+      # The oldest supported macOS gets this exact app in the next job. ditto keeps the executable bit and the
+      # signature, which upload-artifact's own zip would not.
+      - name: Bundle for the Sequoia launch check
+        run: |
+          ./scripts/bundle.sh
+          ditto -c -k --sequesterRsrc --keepParent build/Sorl.app Sorl.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sorl-app
+          path: Sorl.zip
+          retention-days: 7
+
       # Only pushes to main save. PR runs can read main's caches but not each other's, so a cache saved
       # from a PR would only take up space (about 90 MB each, against the repo's 10 GB limit).
       - name: Save build cache
@@ -69,3 +82,55 @@ jobs:
         with:
           path: .build
           key: ${{ steps.cache.outputs.cache-primary-key }}
+
+  # The compiler catches 26-only APIs, but not a crash at launch or a panel that fails to build on the oldest
+  # supported macOS. This launches the app built above on macOS 15 and drives it through its URL scheme.
+  launch-on-sequoia:
+    needs: build-and-test
+    runs-on: macos-15
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: sorl-app
+
+      - name: Launch and open the panel
+        run: |
+          set -euo pipefail
+          sw_vers
+          ditto -x -k Sorl.zip .
+          codesign --verify --strict Sorl.app
+          /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f Sorl.app
+          alive() {
+            if ! pgrep -x Sorl >/dev/null; then
+              echo "::error::Sorl is not running after: $1"
+              ls ~/Library/Logs/DiagnosticReports/ 2>/dev/null | grep -i sorl && cat ~/Library/Logs/DiagnosticReports/Sorl* || true
+              exit 1
+            fi
+          }
+          /usr/bin/open Sorl.app
+          sleep 5; alive "launch"
+          /usr/bin/open "sorl://mute"
+          /usr/bin/open "sorl://open"
+          sleep 3; alive "sorl://open"
+          screencapture -x panel.png || echo "::warning::screencapture failed"
+          /usr/bin/open "sorl://settings"
+          sleep 2; alive "sorl://settings"
+          screencapture -x settings.png || true
+          /usr/bin/open "sorl://close"
+          sleep 1; alive "sorl://close"
+          if ls ~/Library/Logs/DiagnosticReports/ 2>/dev/null | grep -qi sorl; then
+            echo "::error::Sorl left a crash report"
+            exit 1
+          fi
+          echo "Sorl launched and opened the panel on macOS $(sw_vers -productVersion)"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sequoia-screenshots
+          path: '*.png'
+          if-no-files-found: ignore
+          retention-days: 7
