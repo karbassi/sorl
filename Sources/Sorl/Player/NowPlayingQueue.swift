@@ -14,11 +14,14 @@ import SorlCore
 /// missing, Sorl publishes the queue position and length only, as before.
 nonisolated final class NowPlayingQueue: NSObject, PlaybackQueueDataSource, @unchecked Sendable {
     /// What the queue shows. The current item takes the title, subtitle and length published as Now Playing.
-    struct Snapshot: Equatable {
+    /// `@unchecked`: `MPMediaItemArtwork` isn't marked Sendable, but it's never mutated and its image closure is.
+    struct Snapshot: Equatable, @unchecked Sendable {
         var upNext: UpNext
         var title: String
         var subtitle: String?
+        var album: String?
         var duration: Double?
+        var artwork: MPMediaItemArtwork?
     }
 
     private static let setDataSource = NSSelectorFromString("setPlaybackQueueDataSource:")
@@ -61,9 +64,27 @@ nonisolated final class NowPlayingQueue: NSObject, PlaybackQueueDataSource, @unc
         let isCurrent = item.id == snapshot.upNext.current?.id
         content.title = isCurrent ? snapshot.title : item.title
         content.isPlayable = true
+        // Marks the item as having a cover; the system then fetches it through `artwork(_:for:size:completion:)`.
+        if isCurrent, let artwork = snapshot.artwork {
+            content.artwork = artwork
+            // A new identifier when the cover arrives after the item was first read, so the system fetches it again.
+            Self.set(String(UInt(bitPattern: ObjectIdentifier(artwork).hashValue)), "artworkIdentifier", on: content)
+        }
+        Self.set(isCurrent ? snapshot.album : nil, "albumName", on: content)
         Self.set(isCurrent ? snapshot.subtitle : nil, "trackArtistName", on: content)
         Self.set(isCurrent ? snapshot.duration ?? item.duration : item.duration, "duration", on: content)
         return content
+    }
+
+    /// The playing item's cover. With a data source installed, the system asks here instead of reading the artwork in
+    /// `nowPlayingInfo`. The block's argument types aren't public; it takes the image first (an `NSImage` works).
+    @objc(nowPlayingInfoCenter:artworkForContentItem:size:completion:)
+    func artwork(_ center: MPNowPlayingInfoCenter, for item: MPContentItem, size: CGSize,
+                 completion: @escaping @convention(block) (AnyObject?, AnyObject?) -> Void) {
+        let id = item.identifier
+        let current = snapshot.withLock { $0 }
+        let art = current?.upNext.current?.id.uuidString == id ? current?.artwork : nil
+        completion(art?.image(at: size), nil)
     }
 
     /// An `MPNowPlayingContentItem`, the private subclass that carries an artist and length, else a plain content item.
@@ -75,9 +96,11 @@ nonisolated final class NowPlayingQueue: NSObject, PlaybackQueueDataSource, @unc
         typealias Alloc = @convention(c) (AnyClass, Selector) -> UnsafeMutableRawPointer?
         typealias Initialize = @convention(c) (UnsafeMutableRawPointer, Selector, NSString) -> Unmanaged<MPContentItem>?
         let alloc = NSSelectorFromString("alloc"), initialize = #selector(MPContentItem.init(identifier:))
-        guard let allocIMP = class_getMethodImplementation(object_getClass(type), alloc),
+        // class_getMethodImplementation never returns nil (a missing method gets the forwarding IMP), so check first.
+        guard class_respondsToSelector(object_getClass(type), alloc), class_respondsToSelector(type, initialize),
+              let allocIMP = class_getMethodImplementation(object_getClass(type), alloc),
               let initIMP = class_getMethodImplementation(type, initialize),
-              let raw = unsafeBitCast(allocIMP, to: Alloc.self)(type, alloc) else { return nil }
+              let raw = unsafeBitCast(allocIMP, to: Alloc.self)(type, alloc) else { return MPContentItem(identifier: identifier) }
         return unsafeBitCast(initIMP, to: Initialize.self)(raw, initialize, identifier as NSString)?.takeRetainedValue()
     }
 
@@ -86,3 +109,4 @@ nonisolated final class NowPlayingQueue: NSObject, PlaybackQueueDataSource, @unc
         item.setValue(value, forKey: key)
     }
 }
+

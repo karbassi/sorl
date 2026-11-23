@@ -106,6 +106,16 @@ public struct UpNext: Codable, Equatable, Sendable {
         return (items, (lower...upper).contains(0) ? -lower : nil)
     }
 
+    /// The current item's place in the whole queue, as Now Playing's queue index and count: nil with nothing queued or
+    /// played. The index is the current item's offset counted from the oldest played one, matching `item(atOffset:)`.
+    public var nowPlayingPosition: (index: Int, count: Int)? {
+        guard !upcoming.isEmpty || !played.isEmpty else { return nil }
+        return (played.count, played.count + 1 + upcoming.count)
+    }
+
+    /// Whether there are upcoming items to share as the system queue: a current item and something after it.
+    public var sharesUpcoming: Bool { current != nil && !upcoming.isEmpty }
+
     /// Finds an item anywhere in the queue: current, Up next or Played.
     public func item(withID id: QueueItem.ID) -> QueueItem? {
         if current?.id == id { return current }

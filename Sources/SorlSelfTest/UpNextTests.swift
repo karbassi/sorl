@@ -163,6 +163,25 @@ import Testing
         #expect(UpNext().items(fromOffset: 0, toOffset: 5).items.isEmpty)
     }
 
+    @Test func nowPlayingPositionMatchesOffsets() {
+        #expect(UpNext(current: Self.item("now")).nowPlayingPosition == nil)
+        var q = UpNext(current: Self.item("p"), upcoming: ["now", "a", "b"].map { Self.item($0) })
+        _ = q.advance()
+        let position = try! #require(q.nowPlayingPosition)
+        #expect(position.index == 1 && position.count == 4)
+        #expect(q.item(atOffset: -position.index)?.title == "p")
+        #expect(q.item(atOffset: position.count - 1 - position.index)?.title == "b")
+        #expect(q.item(atOffset: position.count - position.index) == nil)
+        // Up next items without a current one still report a position, as before.
+        #expect(UpNext(upcoming: [Self.item("a")]).nowPlayingPosition?.count == 2)
+    }
+
+    @Test func sharesUpcomingNeedsCurrentAndSomethingNext() {
+        #expect(Self.queue(["a"]).sharesUpcoming)
+        #expect(!Self.queue([]).sharesUpcoming)
+        #expect(!UpNext(upcoming: [Self.item("a")]).sharesUpcoming)
+    }
+
     @Test func findsItemsAnywhere() {
         var q = UpNext(current: Self.item("p"), upcoming: ["now", "a"].map { Self.item($0) })
         _ = q.advance()

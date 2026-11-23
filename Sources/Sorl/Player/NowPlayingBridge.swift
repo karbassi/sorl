@@ -98,19 +98,22 @@ final class NowPlayingBridge {
         let duration = engine.duration.flatMap { $0 > 0 ? $0 : nil }
         if let duration { info[MPMediaItemPropertyPlaybackDuration] = duration }
         let upNext = engine.upNext
-        let sharesQueue = upNext.current != nil && (!upNext.isEmpty || !upNext.played.isEmpty)
-        if sharesQueue {
-            if let title = upNext.headerSource { info[MPMediaItemPropertyAlbumTitle] = title }
-            info[MPNowPlayingInfoPropertyPlaybackQueueIndex] = upNext.played.count
-            info[MPNowPlayingInfoPropertyPlaybackQueueCount] = upNext.played.count + 1 + upNext.upcoming.count
+        let album = upNext.nowPlayingPosition == nil ? nil : upNext.headerSource
+        if let position = upNext.nowPlayingPosition {
+            if let album { info[MPMediaItemPropertyAlbumTitle] = album }
+            info[MPNowPlayingInfoPropertyPlaybackQueueIndex] = position.index
+            info[MPNowPlayingInfoPropertyPlaybackQueueCount] = position.count
         }
-        if let artwork, artworkTrackID == track.id {
-            info[MPMediaItemPropertyArtwork] = artwork
+        let currentArtwork = artworkTrackID == track.id ? artwork : nil
+        if let currentArtwork {
+            info[MPMediaItemPropertyArtwork] = currentArtwork
         } else {
             loadArtwork(for: track)
         }
         center.nowPlayingInfo = info
-        queue.publish(sharesQueue ? .init(upNext: upNext, title: track.title, subtitle: subtitle, duration: duration) : nil,
+        // With a queue data source, the system reads the playing item's details from it, artwork and album included.
+        queue.publish(upNext.sharesUpcoming ? .init(upNext: upNext, title: track.title, subtitle: subtitle, album: album,
+                                                    duration: duration, artwork: currentArtwork) : nil,
                       to: center)
         center.playbackState = engine.isPlaying ? .playing : .paused
         commands.nextTrackCommand.isEnabled = engine.hasNext
