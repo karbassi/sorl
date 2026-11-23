@@ -28,6 +28,12 @@ mkdir -p "$OUT/Contents/MacOS" "$OUT/Contents/Resources"
 # (the real install lives in /Applications). Harmless marker file Spotlight honours.
 touch build/.metadata_never_index
 cp "$BIN" "$OUT/Contents/MacOS/$APP"
+# The app deploys to macOS 15, and some SwiftPM builds then record 15.0 as the linked SDK too. AppKit keys the
+# Liquid Glass control styles on the linked SDK, so a 15.0 stamp would give the old look on macOS 26.
+# Record the SDK the build actually compiled against.
+MIN_OS="$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' Resources/Info.plist)"
+SDK_VERSION="$(xcrun --sdk macosx --show-sdk-version)"
+vtool -set-build-version macos "$MIN_OS" "$SDK_VERSION" -replace -output "$OUT/Contents/MacOS/$APP" "$OUT/Contents/MacOS/$APP"
 sed -e "s/__VERSION__/$VERSION/g" -e "s/__BUILD__/$BUILD_NUMBER/g" Resources/Info.plist > "$OUT/Contents/Info.plist"
 printf 'APPL????' > "$OUT/Contents/PkgInfo"
 if [ -f Resources/AppIcon.icns ]; then

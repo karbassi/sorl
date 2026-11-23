@@ -472,8 +472,7 @@ final class PanelController {
         // The SwiftUI view sits beside the surface, not inside it: `NSGlassEffectView.contentView` takes over its
         // content's layout.
         // Stock Liquid Glass: default style, no tint. It follows light/dark, Increase Contrast and Reduce Transparency.
-        let surface = NSGlassEffectView(frame: Self.glassRect(in: container.bounds))
-        surface.cornerRadius = Self.cornerRadius
+        let surface = Self.makeSurface(frame: Self.glassRect(in: container.bounds))
         for view in [shadow, surface, hosting] {
             view.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(view)
@@ -494,6 +493,25 @@ final class PanelController {
             hosting.bottomAnchor.constraint(equalTo: surface.bottomAnchor),
         ])
         panel.contentView = root
+    }
+
+    /// Liquid Glass on macOS 26. On macOS 15 there is no glass view, so the panel uses the popover material,
+    /// which also follows light/dark, Increase Contrast and Reduce Transparency.
+    private static func makeSurface(frame: NSRect) -> NSView {
+        if #available(macOS 26, *) {
+            let glass = NSGlassEffectView(frame: frame)
+            glass.cornerRadius = cornerRadius
+            return glass
+        }
+        let material = NSVisualEffectView(frame: frame)
+        material.material = .popover
+        material.blendingMode = .behindWindow
+        material.state = .active
+        material.wantsLayer = true
+        material.layer?.cornerRadius = cornerRadius
+        material.layer?.cornerCurve = .continuous
+        material.layer?.masksToBounds = true
+        return material
     }
 
     // MARK: - Dismissal and keys
