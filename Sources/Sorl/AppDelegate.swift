@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var service: YTDLPService!
     private var engine: PlayerEngine!
     private var nowPlaying: NowPlayingBridge!
+    private var outputDevice: OutputDeviceWatcher!
     private var panel: PanelController!
     private var statusItem: StatusItemController!
     private let log = Logger(subsystem: "com.karbassi.sorl", category: "app")
@@ -28,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         service = YTDLPService(settings: settings)
         engine = PlayerEngine(settings: settings, service: service)
         nowPlaying = NowPlayingBridge(engine: engine)
+        outputDevice = OutputDeviceWatcher(engine: engine)
         panel = PanelController(settings: settings, engine: engine, service: service)
         statusItem = StatusItemController(engine: engine, panel: panel, settings: settings)
         Hotkeys.install(engine: engine, panel: panel)
@@ -143,6 +145,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        outputDevice.stop()
         engine.shutdown()
         settings.flushStreamCache()
         settings.flushUpNext()

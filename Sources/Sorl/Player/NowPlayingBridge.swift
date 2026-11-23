@@ -57,6 +57,23 @@ final class NowPlayingBridge {
             self?.engine.setSpeed(speed)
             return .success
         }
+        commands.changeRepeatModeCommand.addTarget { [weak self] event in
+            guard let event = event as? MPChangeRepeatModeCommandEvent else { return .commandFailed }
+            let mode: RepeatMode = switch event.repeatType {
+            case .one: .one
+            case .all: .all
+            default: .off
+            }
+            self?.engine.setRepeatMode(mode)
+            return .success
+        }
+        // Saved is a keep-for-later list, not a rating, so it maps to bookmark rather than like/dislike.
+        commands.bookmarkCommand.localizedTitle = "Save"
+        commands.bookmarkCommand.addTarget { [weak self] _ in
+            guard let self, self.engine.track != nil else { return .noSuchContent }
+            self.engine.toggleSavedTrack()
+            return .success
+        }
     }
 
     /// Re-arms itself after each change; only the properties read here trigger refreshes.
@@ -69,6 +86,8 @@ final class NowPlayingBridge {
             _ = engine.speed
             _ = engine.seekGeneration
             _ = engine.upNext
+            _ = engine.repeatMode
+            _ = engine.isTrackSaved
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
@@ -105,6 +124,10 @@ final class NowPlayingBridge {
             info[MPNowPlayingInfoPropertyPlaybackQueueIndex] = position.index
             info[MPNowPlayingInfoPropertyPlaybackQueueCount] = position.count
         }
+        if let chapter = engine.chapter, let index = track.chapters.firstIndex(of: chapter) {
+            info[MPNowPlayingInfoPropertyChapterNumber] = index
+            info[MPNowPlayingInfoPropertyChapterCount] = track.chapters.count
+        }
         let currentArtwork = artworkTrackID == track.id ? artwork : nil
         if let currentArtwork {
             info[MPMediaItemPropertyArtwork] = currentArtwork
@@ -123,6 +146,14 @@ final class NowPlayingBridge {
         center.playbackState = engine.isPlaying ? .playing : .paused
         commands.nextTrackCommand.isEnabled = engine.hasNext
         commands.previousTrackCommand.isEnabled = engine.hasPrevious
+        commands.changeRepeatModeCommand.currentRepeatType = switch engine.repeatMode {
+        case .off: .off
+        case .one: .one
+        case .all: .all
+        }
+        let saved = engine.isTrackSaved
+        commands.bookmarkCommand.isActive = saved
+        commands.bookmarkCommand.localizedTitle = saved ? "Saved" : "Save"
     }
 
     private func loadArtwork(for track: Track) {
