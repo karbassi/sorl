@@ -1,17 +1,15 @@
 import CoreAudio
+import SorlCore
 import os
 
-/// Pauses playback when the system's default output device changes (headphones unplugged, AirPods or a
+/// Pauses playback when the output device being played through goes away (headphones unplugged, AirPods or a
 /// Bluetooth speaker dropping), like Music.app does. AVPlayer would otherwise carry on out of the next device.
+/// Plugging something in or picking another output keeps playing: the old device is still there (`OutputRoute`).
 final class OutputDeviceWatcher {
     private let engine: PlayerEngine
     private let log = Logger(subsystem: "com.karbassi.sorl", category: "output")
     private static let system = AudioObjectID(kAudioObjectSystemObject)
-    private var address = AudioObjectPropertyAddress(
-        mSelector: kAudioHardwarePropertyDefaultOutputDevice,
-        mScope: kAudioObjectPropertyScopeGlobal,
-        mElement: kAudioObjectPropertyElementMain
-    )
+    private var address = OutputDeviceWatcher.address(kAudioHardwarePropertyDefaultOutputDevice)
     private var listener: AudioObjectPropertyListenerBlock?
     private var device: AudioDeviceID
 
@@ -37,22 +35,42 @@ final class OutputDeviceWatcher {
     }
 
     private func defaultOutputChanged() {
+        let previous = device
         let current = Self.defaultOutputDevice()
-        guard current != device else { return }
-        log.notice("default output device changed \(self.device) -> \(current), playing: \(self.engine.isPlaying)")
+        guard current != previous else { return }
         device = current
-        if engine.isPlaying { engine.pause() }
+        let present = Self.isPresent(previous)
+        log.notice("default output \(previous) -> \(current), old still present: \(present), playing: \(self.engine.isPlaying)")
+        if OutputRoute.shouldPause(isPlaying: engine.isPlaying, previous: previous, current: current, previousStillPresent: present) {
+            engine.pause()
+        }
+    }
+
+    private static func address(_ selector: AudioObjectPropertySelector) -> AudioObjectPropertyAddress {
+        AudioObjectPropertyAddress(mSelector: selector, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
     }
 
     private static func defaultOutputDevice() -> AudioDeviceID {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
+        var address = address(kAudioHardwarePropertyDefaultOutputDevice)
         var id = AudioDeviceID(kAudioObjectUnknown)
         var size = UInt32(MemoryLayout<AudioDeviceID>.size)
-        AudioObjectGetPropertyData(Self.system, &address, 0, nil, &size, &id)
+        AudioObjectGetPropertyData(system, &address, 0, nil, &size, &id)
         return id
+    }
+
+    /// Whether `id` is still in the system's device list and alive.
+    private static func isPresent(_ id: AudioDeviceID) -> Bool {
+        var listAddress = address(kAudioHardwarePropertyDevices)
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(system, &listAddress, 0, nil, &size) == noErr else { return true }
+        var devices = [AudioDeviceID](repeating: 0, count: Int(size) / MemoryLayout<AudioDeviceID>.size)
+        guard AudioObjectGetPropertyData(system, &listAddress, 0, nil, &size, &devices) == noErr else { return true }
+        guard devices.prefix(Int(size) / MemoryLayout<AudioDeviceID>.size).contains(id) else { return false }
+
+        var aliveAddress = address(kAudioDevicePropertyDeviceIsAlive)
+        var alive: UInt32 = 0
+        var aliveSize = UInt32(MemoryLayout<UInt32>.size)
+        guard AudioObjectGetPropertyData(id, &aliveAddress, 0, nil, &aliveSize, &alive) == noErr else { return false }
+        return alive != 0
     }
 }
