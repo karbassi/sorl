@@ -16,7 +16,6 @@ struct PanelRoot: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            PanelStyle.panelBackground
             if state.showingSettings {
                 page(height: PanelStyle.drawerHeight) { SettingsView() }
                     .transition(sheetTransition)
@@ -37,7 +36,14 @@ struct PanelRoot: View {
         }
         // The window is sized to the page; pinning it to the top keeps any transient mismatch at the bottom.
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .clipShape(.rect(cornerRadius: PanelController.cornerRadius))
+        // The background sits behind the ZStack, not in it: as a sibling it was drawn over the outgoing page, blanking
+        // the panel as a sheet opened. It and the mask follow the window at once rather than on the page spring, so
+        // the window growing for a sheet shows no bare glass at the bottom while the sheet rises.
+        .background { PanelStyle.panelBackground.transaction { $0.animation = nil } }
+        .mask {
+            RoundedRectangle(cornerRadius: PanelController.cornerRadius, style: .continuous)
+                .transaction { $0.animation = nil }
+        }
         .environment(engine)
         .environment(settings)
         .environment(service)
@@ -66,10 +72,13 @@ struct PanelRoot: View {
         .onChange(of: state.showingSettings) { toasts.dismiss() }
     }
 
-    /// Settings and the drawer rise from the bottom and drop back down; the player and Nothing playing beneath them
-    /// only cross-fade. With Reduce Motion everything cross-fades.
+    /// Settings and the drawer rise from the bottom, solid, and drop back down as they fade; the player and Nothing
+    /// playing beneath them only cross-fade. With Reduce Motion everything cross-fades.
     private var sheetTransition: AnyTransition {
-        reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity)
+        reduceMotion ? .opacity : .asymmetric(
+            insertion: .move(edge: .bottom),
+            removal: .move(edge: .bottom).combined(with: .opacity)
+        )
     }
 
     /// A page at a fixed `height` (capped to what fits on the screen), or its natural height when nil. Reports its
