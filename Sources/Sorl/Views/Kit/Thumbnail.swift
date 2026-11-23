@@ -7,7 +7,16 @@ struct Thumbnail: View {
     let url: URL?
     var side: CGFloat = PanelStyle.thumbSide
     var radius: CGFloat = PanelStyle.thumbRadius
-    @State private var image: NSImage?
+    /// What the fetch below returned, keyed by its URL so a stale image never shows for a new one.
+    @State private var fetched: (url: URL, image: NSImage)?
+
+    /// Read from the cache in `body`, not only in `.task`: `.task` runs after the first frame, so a page sliding in
+    /// would show the placeholder and then pop the art in mid-slide.
+    private var image: NSImage? {
+        guard let url else { return nil }
+        if let fetched, fetched.url == url { return fetched.image }
+        return ArtworkLoader.shared.cached(url)
+    }
 
     var body: some View {
         RoundedRectangle(cornerRadius: radius)
@@ -23,9 +32,8 @@ struct Thumbnail: View {
             .clipShape(.rect(cornerRadius: radius))
             .accessibilityHidden(true)
             .task(id: url) {
-                guard let url else { image = nil; return }
-                image = ArtworkLoader.shared.cached(url)
-                if image == nil { image = await ArtworkLoader.shared.image(for: url) }
+                guard let url, ArtworkLoader.shared.cached(url) == nil else { return }
+                if let loaded = await ArtworkLoader.shared.image(for: url) { fetched = (url, loaded) }
             }
     }
 
