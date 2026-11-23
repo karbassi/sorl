@@ -96,7 +96,7 @@ final class PanelState {
 
     private func transition(_ change: () -> Void) {
         controller?.pageTransitionWillStart()
-        withAnimation(.snappy(duration: PanelController.pageTransition), completionCriteria: .removed) {
+        withAnimation(.spring(PanelController.pageSpring), completionCriteria: .removed) {
             change()
         } completion: { [weak controller] in
             controller?.pageTransitionEnded()
@@ -147,10 +147,11 @@ final class PanelController {
     private weak var container: NSView?
     private var frameAnimation: Timer?
     private var pageTransitionActive = false
-    private var shrinkAfterTransition = false
     private var transitionFallback: DispatchWorkItem?
     /// Duration of the page slide.
     static let pageTransition: TimeInterval = 0.25
+    /// The page slide's curve. The window's shrink follows it too, so its bottom edge moves with the sheet.
+    static let pageSpring = Spring.snappy(duration: pageTransition)
 
     init(settings: AppSettings, engine: PlayerEngine, service: YTDLPService) {
         self.settings = settings
@@ -312,15 +313,10 @@ final class PanelController {
         let shrinking = size.height < contentSize.height
         contentSize = size
         cancelFrameAnimation()
-        // Growing happens at once so an entering page has room to slide in. Shrinking waits until the exiting page is
-        // gone: while it lingers for its slide, its AppKit-backed controls still hold constraints sized for the old
-        // height, and Auto Layout resizes the window around them. The glass then contracts with a short animation.
-        if shrinking, isVisible, pageTransitionActive {
-            shrinkAfterTransition = true
-            return
-        }
-        shrinkAfterTransition = false
-        applyContentSize(animated: false)
+        // Growing happens at once so an entering page has room to slide in. Shrinking during a page switch starts with
+        // it, on the slide's own curve, so the bottom edge comes down with the sheet instead of after it. The exiting
+        // sheet keeps its fixed height, top-anchored and clipped by the glass, while the window contracts around it.
+        applyContentSize(animated: shrinking && isVisible && pageTransitionActive)
     }
 
     func pageTransitionWillStart() {
@@ -338,10 +334,6 @@ final class PanelController {
         pageTransitionActive = false
         transitionFallback?.cancel()
         transitionFallback = nil
-        if shrinkAfterTransition {
-            shrinkAfterTransition = false
-            applyContentSize(animated: isVisible)
-        }
     }
 
     private func cancelFrameAnimation() {
@@ -369,18 +361,20 @@ final class PanelController {
             setPanelFrame(target)
             return
         }
-        let duration: TimeInterval = 0.16
+        let spring = Self.pageSpring
         let began = CACurrentMediaTime()
         let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                let progress = min(1, (CACurrentMediaTime() - began) / duration)
-                let eased = 1 - pow(1 - progress, 3)
+                let elapsed = CACurrentMediaTime() - began
+                // Stops at the target rather than following the spring's overshoot, which would clip the page below.
+                let eased = min(1, spring.value(target: 1.0, time: elapsed))
+                let done = eased >= 1 || elapsed >= spring.settlingDuration
                 func mix(_ a: CGFloat, _ b: CGFloat) -> CGFloat { (a + (b - a) * eased).rounded() }
                 let frame = NSRect(x: mix(start.minX, target.minX), y: mix(start.minY, target.minY),
                                    width: mix(start.width, target.width), height: mix(start.height, target.height))
-                self.setPanelFrame(progress >= 1 ? target : frame)
-                if progress >= 1 { self.cancelFrameAnimation() }
+                self.setPanelFrame(done ? target : frame)
+                if done { self.cancelFrameAnimation() }
             }
         }
         RunLoop.main.add(timer, forMode: .common)
