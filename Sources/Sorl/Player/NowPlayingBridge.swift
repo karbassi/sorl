@@ -85,11 +85,12 @@ final class NowPlayingBridge {
             center.playbackState = .stopped
             return
         }
+        let rate = (engine.isPlaying && !engine.isBuffering) ? engine.speed.rawValue : 0
         var info: [String: Any] = [
             MPMediaItemPropertyTitle: track.title,
             MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: engine.livePosition,
-            MPNowPlayingInfoPropertyPlaybackRate: (engine.isPlaying && !engine.isBuffering) ? engine.speed.rawValue : 0,
+            MPNowPlayingInfoPropertyPlaybackRate: rate,
             MPNowPlayingInfoPropertyDefaultPlaybackRate: engine.speed.rawValue,
         ]
         // The subtitle line: in a DJ mix, the chapter (the song playing) rather than the channel.
@@ -113,7 +114,10 @@ final class NowPlayingBridge {
         // With a queue data source, the system reads the playing item's details from it, artwork and album included.
         // Set the info after it, so removing the data source hands Now Playing back to this dictionary.
         queue.publish(upNext.sharesUpcoming ? .init(upNext: upNext, title: track.title, subtitle: subtitle, album: album,
-                                                    duration: duration, artwork: currentArtwork, info: info as NSDictionary) : nil,
+                                                    duration: duration, artwork: currentArtwork,
+                                                    elapsed: engine.livePosition,
+                                                    rate: rate,
+                                                    defaultRate: engine.speed.rawValue) : nil,
                       to: center)
         center.nowPlayingInfo = info
         center.playbackState = engine.isPlaying ? .playing : .paused

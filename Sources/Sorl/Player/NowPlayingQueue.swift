@@ -22,9 +22,11 @@ nonisolated final class NowPlayingQueue: NSObject, PlaybackQueueDataSource, @unc
         var album: String?
         var duration: Double?
         var artwork: MPMediaItemArtwork?
-        /// The full `nowPlayingInfo`: the system takes elapsed time, rate, chapters and queue position from the
-        /// current item once a data source is installed, not from the center.
-        var info: NSDictionary
+        /// Once a data source is installed the system takes the playing position from the current item, not from the
+        /// center's `nowPlayingInfo`.
+        var elapsed: Double
+        var rate: Double
+        var defaultRate: Double
     }
 
     private static let setDataSource = NSSelectorFromString("setPlaybackQueueDataSource:")
@@ -73,7 +75,11 @@ nonisolated final class NowPlayingQueue: NSObject, PlaybackQueueDataSource, @unc
             // A new identifier when the cover arrives after the item was first read, so the system fetches it again.
             Self.set(String(UInt(bitPattern: ObjectIdentifier(artwork).hashValue)), "artworkIdentifier", on: content)
         }
-        Self.set(isCurrent ? snapshot.info : nil, "nowPlayingInfo", on: content)
+        if isCurrent {
+            Self.set(snapshot.defaultRate, "defaultPlaybackRate", on: content)
+            Self.set(snapshot.rate, "playbackRate", on: content)
+            Self.set(snapshot.elapsed, "elapsedTime", on: content)
+        }
         Self.set(isCurrent ? snapshot.album : nil, "albumName", on: content)
         Self.set(isCurrent ? snapshot.subtitle : nil, "trackArtistName", on: content)
         Self.set(isCurrent ? snapshot.duration ?? item.duration : item.duration, "duration", on: content)
