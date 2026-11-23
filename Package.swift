@@ -19,7 +19,7 @@ let testingLinkFlags: [LinkerSetting] = usingCLT
 
 let package = Package(
     name: "Sorl",
-    platforms: [.macOS(.v26)],
+    platforms: [.macOS(.v15)],
     dependencies: [
         // Vendored + minimally patched so it builds with the Command Line Tools alone (see Vendor/README.md).
         .package(path: "Vendor/KeyboardShortcuts"),

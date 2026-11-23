@@ -1,6 +1,6 @@
 # Sorl
 
-A macOS 26 menu bar app that plays the audio of YouTube and other yt-dlp sites. Formerly Undertone: `Sources/SorlCore/LegacyMigration.swift` moves an Undertone install's data on first launch. Brand rules (palette, glyphs, voice) live in `docs/brand/BRAND.md`.
+A macOS 15+ menu bar app (Liquid Glass on 26, popover material on 15) that plays the audio of YouTube and other yt-dlp sites. Formerly Undertone: `Sources/SorlCore/LegacyMigration.swift` moves an Undertone install's data on first launch. Brand rules (palette, glyphs, voice) live in `docs/brand/BRAND.md`.
 
 ## Repo
 

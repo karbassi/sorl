@@ -14,7 +14,7 @@ Sorl is a menu bar player for macOS. Paste a YouTube link, or one from any site 
 
 It plays the audio-only stream through the native macOS player, so there is no video decoding, no browser, and nothing to watch. It skips ads by never loading them: it plays the raw audio track directly, the same one AirPods and the Control Center Now Playing widget see.
 
-Built for macOS 26 (Tahoe), with a panel that follows light and dark mode and the accessibility display settings.
+Built for macOS 26 (Tahoe), and runs on macOS 15 (Sequoia), with a panel that follows light and dark mode and the accessibility display settings.
 
 Say it as one syllable, like "soar" with an L on the end: sorl /soːɭ/. It's Swedish for the murmur of voices.
 
@@ -38,7 +38,7 @@ Say it as one syllable, like "soar" with an L on the end: sorl /soːɭ/. It's Sw
 
 ## Requirements
 
-- **macOS 26 (Tahoe) or later**, Apple silicon or Intel.
+- **macOS 15 (Sequoia) or later**, Apple silicon or Intel. On macOS 26 the panel is Liquid Glass; on 15 it uses the standard popover material.
 - **[yt-dlp](https://github.com/yt-dlp/yt-dlp) 2026.08.19 or newer** and a JavaScript runtime (**deno**), both from Homebrew. yt-dlp is the piece that finds the audio stream; YouTube changes often, so keep it current:
 
   ```sh
