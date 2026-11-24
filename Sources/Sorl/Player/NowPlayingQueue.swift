@@ -110,10 +110,12 @@ nonisolated final class NowPlayingQueue: NSObject, PlaybackQueueDataSource, @unc
         set(snapshot.info, "nowPlayingInfo", on: content)
         content.title = snapshot.title
         content.isPlayable = true
-        // Marks the item as having a cover; the system then fetches it through `artwork(_:for:size:completion:)`.
+        // Always claim a cover. The system reads this once, when it first gets the item, and asks for artwork only
+        // when it was set; the request then finds the cover even if it loaded later.
+        set(true, "hasArtwork", on: content)
+        // The system fetches the image through `artwork(_:for:size:completion:)`, from the snapshot.
         if let artwork = snapshot.artwork, content.artwork !== artwork {
             content.artwork = artwork
-            // Known gap: the system doesn't fetch a cover that arrives after it first read the item.
         }
         set(snapshot.album, "albumName", on: content)
         set(snapshot.subtitle, "trackArtistName", on: content)
@@ -156,4 +158,5 @@ nonisolated final class NowPlayingQueue: NSObject, PlaybackQueueDataSource, @unc
         item.setValue(value, forKey: key)
     }
 }
+
 
