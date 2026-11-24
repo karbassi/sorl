@@ -6,6 +6,9 @@ A macOS 15+ menu bar app (Liquid Glass on 26, popover material on 15) that plays
 
 - `main` is the default branch. Each PR does one thing and merges with a merge commit.
 - Releases are automatic: every PR merged into `main` gets a minor bump, a `CHANGELOG.md` section, a tag and a release (`auto-release.yml` → `release.yml`). Label the PR `major` or `patch` to change the bump, or `skip-release` to hold it for the next release. A hand-pushed `vX.Y.Z` tag still releases. `release.yml` builds `Sorl.zip` and attaches it to the GitHub release; the `sorl` cask lives in `karbassi/homebrew-tap`.
+- The PR title becomes its line in `CHANGELOG.md` and the release notes, so write it as a user-facing change in plain English (e.g. "Play a link dropped on the menu bar icon").
+- Label every PR when opening it: `patch` for a bug fix, no label (minor) for a new feature or visible change, `major` only when the maintainer asks, and `skip-release` for anything users can't see (CI, docs, CLAUDE.md, refactors, tests).
+- Never edit `CHANGELOG.md` or push `v*` tags by hand; `auto-release.yml` owns both.
 
 ## Build and test
 
