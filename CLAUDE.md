@@ -5,7 +5,7 @@ A macOS 15+ menu bar app (Liquid Glass on 26, popover material on 15) that plays
 ## Repo
 
 - `main` is the default branch. Each PR does one thing and merges with a merge commit.
-- Releases: push a `vX.Y.Z` tag. `release.yml` builds `Sorl.zip` and attaches it to the GitHub release; the `sorl` cask lives in `karbassi/homebrew-tap`.
+- Releases are automatic: every PR merged into `main` gets a minor bump, a `CHANGELOG.md` section, a tag and a release (`auto-release.yml` → `release.yml`). Label the PR `major` or `patch` to change the bump, or `skip-release` to hold it for the next release. A hand-pushed `vX.Y.Z` tag still releases. `release.yml` builds `Sorl.zip` and attaches it to the GitHub release; the `sorl` cask lives in `karbassi/homebrew-tap`.
 
 ## Build and test
 
