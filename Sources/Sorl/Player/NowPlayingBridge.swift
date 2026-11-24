@@ -7,6 +7,7 @@ final class NowPlayingBridge {
     private let engine: PlayerEngine
     private let center = MPNowPlayingInfoCenter.default()
     private let commands = MPRemoteCommandCenter.shared()
+    private let queue = NowPlayingQueue()
     private var artwork: MPMediaItemArtwork?
     private var artworkTrackID: String?
 
@@ -98,35 +99,53 @@ final class NowPlayingBridge {
 
     func refresh() {
         guard let track = engine.track else {
+            queue.publish(nil, to: center)
             center.nowPlayingInfo = nil
             center.playbackState = .stopped
             return
         }
+        let rate = (engine.isPlaying && !engine.isBuffering) ? engine.speed.rawValue : 0
         var info: [String: Any] = [
             MPMediaItemPropertyTitle: track.title,
             MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: engine.livePosition,
-            MPNowPlayingInfoPropertyPlaybackRate: (engine.isPlaying && !engine.isBuffering) ? engine.speed.rawValue : 0,
+            MPNowPlayingInfoPropertyPlaybackRate: rate,
             MPNowPlayingInfoPropertyDefaultPlaybackRate: engine.speed.rawValue,
         ]
         // The subtitle line: in a DJ mix, the chapter (the song playing) rather than the channel.
-        if let subtitle = engine.chapter?.title ?? track.channel { info[MPMediaItemPropertyArtist] = subtitle }
-        if let duration = engine.duration, duration > 0 { info[MPMediaItemPropertyPlaybackDuration] = duration }
-        let queue = engine.upNext
-        if !queue.isEmpty || !queue.played.isEmpty {
-            if let title = queue.headerSource { info[MPMediaItemPropertyAlbumTitle] = title }
-            info[MPNowPlayingInfoPropertyPlaybackQueueIndex] = queue.played.count
-            info[MPNowPlayingInfoPropertyPlaybackQueueCount] = queue.played.count + 1 + queue.upcoming.count
+        let subtitle = engine.chapter?.title ?? track.channel
+        if let subtitle { info[MPMediaItemPropertyArtist] = subtitle }
+        let duration = engine.duration.flatMap { $0 > 0 ? $0 : nil }
+        if let duration { info[MPMediaItemPropertyPlaybackDuration] = duration }
+        let upNext = engine.upNext
+        let album = upNext.nowPlayingPosition == nil ? nil : upNext.headerSource
+        if let position = upNext.nowPlayingPosition {
+            if let album { info[MPMediaItemPropertyAlbumTitle] = album }
+            info[MPNowPlayingInfoPropertyPlaybackQueueIndex] = position.index
+            info[MPNowPlayingInfoPropertyPlaybackQueueCount] = position.count
+        }
+        // Ties this info to the queue's current item, so the system keeps applying its updates once the queue is shared.
+        if let id = upNext.current?.id.uuidString {
+            info[MPNowPlayingInfoPropertyExternalContentIdentifier] = id
         }
         if let chapter = engine.chapter, let index = track.chapters.firstIndex(of: chapter) {
             info[MPNowPlayingInfoPropertyChapterNumber] = index
             info[MPNowPlayingInfoPropertyChapterCount] = track.chapters.count
         }
-        if let artwork, artworkTrackID == track.id {
-            info[MPMediaItemPropertyArtwork] = artwork
+        let currentArtwork = artworkTrackID == track.id ? artwork : nil
+        if let currentArtwork {
+            info[MPMediaItemPropertyArtwork] = currentArtwork
         } else {
             loadArtwork(for: track)
         }
+        // With a queue data source, the system reads the playing item's details from it, artwork and album included.
+        queue.publish(upNext.current != nil ? .init(upNext: upNext, title: track.title, subtitle: subtitle, album: album,
+                                                    duration: duration, artwork: currentArtwork,
+                                                    elapsed: engine.livePosition,
+                                                    rate: rate,
+                                                    defaultRate: engine.speed.rawValue,
+                                                    info: info.filter { $0.key != MPMediaItemPropertyArtwork } as NSDictionary) : nil,
+                      to: center)
         center.nowPlayingInfo = info
         center.playbackState = engine.isPlaying ? .playing : .paused
         commands.nextTrackCommand.isEnabled = engine.hasNext

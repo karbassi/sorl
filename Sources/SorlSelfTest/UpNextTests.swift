@@ -135,4 +135,51 @@ import Testing
         #expect(decoded == q)
         #expect(UpNext(decoding: Data("junk".utf8)) == UpNext())
     }
+
+    @Test func offsetsCountFromWhatsPlaying() {
+        var q = UpNext(current: Self.item("p1"), upcoming: ["p2", "now", "a", "b"].map { Self.item($0) })
+        _ = q.advance()
+        _ = q.advance()
+        #expect(q.item(atOffset: 0)?.title == "now")
+        #expect(q.item(atOffset: 1)?.title == "a")
+        #expect(q.item(atOffset: 2)?.title == "b")
+        #expect(q.item(atOffset: 3) == nil)
+        #expect(q.item(atOffset: -1)?.title == "p2")
+        #expect(q.item(atOffset: -2)?.title == "p1")
+        #expect(q.item(atOffset: -3) == nil)
+        #expect(UpNext(upcoming: [Self.item("a")]).item(atOffset: 1) == nil)
+    }
+
+    @Test func offsetRangesClampToTheQueue() {
+        var q = UpNext(current: Self.item("p"), upcoming: ["now", "a", "b"].map { Self.item($0) })
+        _ = q.advance()
+        let all = q.items(fromOffset: -5, toOffset: 20)
+        #expect(all.items.map(\.title) == ["p", "now", "a", "b"])
+        #expect(all.currentIndex == 1)
+        let ahead = q.items(fromOffset: 1, toOffset: 1)
+        #expect(ahead.items.map(\.title) == ["a"])
+        #expect(ahead.currentIndex == nil)
+        #expect(q.items(fromOffset: 3, toOffset: 9).items.isEmpty)
+        #expect(UpNext().items(fromOffset: 0, toOffset: 5).items.isEmpty)
+    }
+
+    @Test func nowPlayingPositionMatchesOffsets() {
+        #expect(UpNext(current: Self.item("now")).nowPlayingPosition == nil)
+        var q = UpNext(current: Self.item("p"), upcoming: ["now", "a", "b"].map { Self.item($0) })
+        _ = q.advance()
+        let position = try! #require(q.nowPlayingPosition)
+        #expect(position.index == 1 && position.count == 4)
+        #expect(q.item(atOffset: -position.index)?.title == "p")
+        #expect(q.item(atOffset: position.count - 1 - position.index)?.title == "b")
+        #expect(q.item(atOffset: position.count - position.index) == nil)
+        // Up next items without a current one still report a position, as before.
+        #expect(UpNext(upcoming: [Self.item("a")]).nowPlayingPosition?.count == 2)
+    }
+
+    @Test func findsItemsAnywhere() {
+        var q = UpNext(current: Self.item("p"), upcoming: ["now", "a"].map { Self.item($0) })
+        _ = q.advance()
+        for item in [q.played[0], q.current!, q.upcoming[0]] { #expect(q.item(withID: item.id) == item) }
+        #expect(q.item(withID: UUID()) == nil)
+    }
 }
