@@ -110,12 +110,15 @@ jobs:
               exit 1
             fi
           }
+          defaults write com.karbassi.sorl syncEnabled -bool YES
           /usr/bin/open Sorl.app
           sleep 5; alive "launch"
           /usr/bin/open "sorl://mute"
           /usr/bin/open "sorl://open"
           sleep 3; alive "sorl://open"
           screencapture -x panel.png || echo "::warning::screencapture failed"
+          /usr/bin/open "sorl://sync"
+          sleep 2; alive "sorl://sync"
           /usr/bin/open "sorl://settings"
           sleep 2; alive "sorl://settings"
           screencapture -x settings.png || true

@@ -1,4 +1,5 @@
 import AppKit
+import KeyboardShortcuts
 import SorlCore
 import os
 
@@ -10,6 +11,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var outputDevice: OutputDeviceWatcher!
     private var panel: PanelController!
     private var statusItem: StatusItemController!
+    private var cloudSync: CloudSync!
+    private var shortcutObserver: NSObjectProtocol?
     private let log = Logger(subsystem: "com.karbassi.sorl", category: "app")
 
     private var pendingURLs: [URL] = []
@@ -26,26 +29,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         settings = AppSettings()
+        let cloudSync = CloudSync(settings: settings)
+        self.cloudSync = cloudSync
+        settings.onSavedChange = { [weak cloudSync] old, new in cloudSync?.savedDidChange(old: old, new: new) }
+        // The vendor's own constant is internal. CloudSync owns the modified-at stamp; this only forwards local edits.
+        shortcutObserver = NotificationCenter.default.addObserver(
+            forName: Notification.Name("KeyboardShortcuts_shortcutByNameDidChange"), object: nil, queue: .main
+        ) { [weak cloudSync] notification in
+            let name = notification.userInfo?["name"] as? KeyboardShortcuts.Name
+            MainActor.assumeIsolated {
+                guard let cloudSync, let name, Hotkeys.all.contains(name), !cloudSync.applyingShortcut else { return }
+                cloudSync.shortcutDidChange(name)
+            }
+        }
         service = YTDLPService(settings: settings)
         engine = PlayerEngine(settings: settings, service: service)
         nowPlaying = NowPlayingBridge(engine: engine)
         outputDevice = OutputDeviceWatcher(engine: engine)
-        panel = PanelController(settings: settings, engine: engine, service: service)
+        panel = PanelController(settings: settings, engine: engine, service: service, cloudSync: cloudSync)
         statusItem = StatusItemController(engine: engine, panel: panel, settings: settings)
         Hotkeys.install(engine: engine, panel: panel)
         service.start()
+        if settings.syncEnabled { Task { await cloudSync.start() } }
         isReady = true
         log.notice("launched from \(Bundle.main.bundleURL.path, privacy: .public)")
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // CKSyncEngine doesn't require it, but silent pushes make other Macs' changes arrive sooner.
+        if ICloudEntitlement.hasCloudKit && settings.syncEnabled && !settings.isDemo {
+            NSApp.registerForRemoteNotifications()
+        }
         let queued = pendingURLs
         pendingURLs.removeAll()
         for url in queued { handle(url) }
     }
 
     /// `sorl://play?url=…` `add?url=…&mode=next|end` `clear` `drawer?tab=saved` `play` `pause` `toggle` `next` `previous` `seek?to=90` `speed?value=2`
-    /// `volume?value=0.5` `mute` `repeat?mode=one` `save` `open` `settings` `close` `quit`
+    /// `volume?value=0.5` `mute` `repeat?mode=one` `save` `sync` `open` `settings` `close` `quit`
     func application(_ application: NSApplication, open urls: [URL]) {
         guard isReady else {
             pendingURLs.append(contentsOf: urls)
@@ -100,6 +121,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 engine.cycleRepeatMode()
             }
         case "save": engine.toggleSavedTrack()
+        case "sync": cloudSync.syncNow()
         case "demo": showDemo(query)
         case "drawer":
             let raw = query.first(where: { $0.name == "tab" })?.value ?? PanelState.Tab.upNext.rawValue
@@ -121,27 +143,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let raw = query.first(where: { $0.name == "screen" })?.value?.lowercased() ?? "f1"
         guard let screen = DemoFixtures.Screen(rawValue: raw) else { return }
-        settings.enterDemoMode()
-        let demo = DemoFixtures.state(for: screen)
-        settings.saved = DemoFixtures.saved
-        let recent = DemoFixtures.recent(pickUp: screen == .f5 || screen == .f7f5)
-        settings.recent = recent.store
-        settings.positions = PlaybackPositions(entries: recent.positions)
-        settings.speed = .normal
-        engine.setSpeed(.normal)
-        engine.setRepeatMode(screen == .f1 || screen == .f1b || screen == .f6 || screen == .f7 ? .all : .off)
-        engine.loadDemo(track: demo.track, upNext: demo.upNext, position: demo.position, playing: demo.playing,
-                        downloaded: DemoFixtures.downloadedKeys, cacheBytes: 340 * 1_000_000)
-        if demo.playbackFailed { engine.showDemoFailure() }
-        service.simulate(demo.ytdlpBroken ? .outdated(YTDLPVersion(2025, 6, 30)) : .ready(YTDLPVersion(2026, 10, 22)))
-        // Screenshots in both modes without touching the system setting.
-        switch query.first(where: { $0.name == "appearance" })?.value {
-        case "light": NSApp.appearance = NSAppearance(named: .aqua)
-        case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
-        default: NSApp.appearance = nil
+        // The sync engine is cancelled before the defaults swap; enterDemoMode drops onSavedChange, so the fixtures
+        // written below never reach CloudSync.
+        Task {
+            await cloudSync.stop()
+            settings.enterDemoMode()
+            let demo = DemoFixtures.state(for: screen)
+            settings.saved = DemoFixtures.saved
+            let recent = DemoFixtures.recent(pickUp: screen == .f5 || screen == .f7f5)
+            settings.recent = recent.store
+            settings.positions = PlaybackPositions(entries: recent.positions)
+            settings.speed = .normal
+            engine.setSpeed(.normal)
+            engine.setRepeatMode(screen == .f1 || screen == .f1b || screen == .f6 || screen == .f7 ? .all : .off)
+            engine.loadDemo(track: demo.track, upNext: demo.upNext, position: demo.position, playing: demo.playing,
+                            downloaded: DemoFixtures.downloadedKeys, cacheBytes: 340 * 1_000_000)
+            if demo.playbackFailed { engine.showDemoFailure() }
+            service.simulate(demo.ytdlpBroken ? .outdated(YTDLPVersion(2025, 6, 30)) : .ready(YTDLPVersion(2026, 10, 22)))
+            // Screenshots in both modes without touching the system setting.
+            switch query.first(where: { $0.name == "appearance" })?.value {
+            case "light": NSApp.appearance = NSAppearance(named: .aqua)
+            case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
+            default: NSApp.appearance = nil
+            }
+            let hover = query.first(where: { $0.name == "hover" })?.value
+            panel.showDemo(screen, hover: hover)
         }
-        let hover = query.first(where: { $0.name == "hover" })?.value
-        panel.showDemo(screen, hover: hover)
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -149,5 +176,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         engine.shutdown()
         settings.flushStreamCache()
         settings.flushUpNext()
+        cloudSync.flush()
     }
 }

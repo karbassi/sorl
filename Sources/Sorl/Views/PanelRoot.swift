@@ -11,6 +11,7 @@ struct PanelRoot: View {
     let settings: AppSettings
     let service: YTDLPService
     let state: PanelState
+    let cloudSync: CloudSync
     @State private var toasts = ToastCenter()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 

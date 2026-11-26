@@ -33,9 +33,11 @@ struct SavedTab: View {
     }
 
     private func remove(_ item: SavedLink) {
-        let before = settings.saved
         settings.saved.remove(item.url)
-        toasts.showUndo("Removed \(item.title) from Saved") { settings.saved = before }
+        toasts.showUndo("Removed \(item.title) from Saved") {
+            settings.saved.save(url: item.url, title: item.title, kind: item.kind, duration: item.duration,
+                                count: item.count, date: item.savedAt)
+        }
     }
 }
 

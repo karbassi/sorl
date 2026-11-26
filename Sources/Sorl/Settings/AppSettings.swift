@@ -28,6 +28,7 @@ final class AppSettings {
         static let upNext = "upNext"
         static let showTotalTime = "showTotalTime"
         static let downloadsLimit = "downloadsLimitGB"
+        static let syncEnabled = "syncEnabled"
     }
 
     @ObservationIgnored private var defaults: UserDefaults
@@ -57,6 +58,27 @@ final class AppSettings {
         showTotalTime = defaults.bool(forKey: Keys.showTotalTime)
         let limit = defaults.integer(forKey: Keys.downloadsLimit)
         downloadsLimitGB = Self.downloadsLimits.contains(limit) ? limit : 2
+        syncEnabled = UserDefaults.standard.bool(forKey: Keys.syncEnabled)
+    }
+
+    /// iCloud sync on/off. Always in `UserDefaults.standard`, never the swappable `defaults`: demo mode can't
+    /// change it (CloudSync's `setEnabled` is a no-op in demo mode).
+    var syncEnabled: Bool {
+        didSet { UserDefaults.standard.set(syncEnabled, forKey: Keys.syncEnabled) }
+    }
+
+    /// True once `enterDemoMode` has swapped in the throwaway defaults (until relaunch).
+    private(set) var isDemo = false
+
+    /// Called with (old, new) after a local change to `saved`; not called for `applyRemoteSaved`.
+    @ObservationIgnored var onSavedChange: ((SavedLinksStore, SavedLinksStore) -> Void)?
+    @ObservationIgnored private var isApplyingRemote = false
+
+    /// Applies a change that came from iCloud: persisted like any edit, but not echoed to `onSavedChange`.
+    func applyRemoteSaved(_ body: (inout SavedLinksStore) -> Void) {
+        isApplyingRemote = true
+        defer { isApplyingRemote = false }
+        body(&saved)
     }
 
     /// "Keep up to" in Settings: 1, 2, 5 or 10 GB of downloads (default 2).
@@ -98,6 +120,8 @@ final class AppSettings {
         guard let demo = UserDefaults(suiteName: "com.karbassi.sorl.demo") else { return }
         persistUpNextTask?.cancel()
         persistCacheTask?.cancel()
+        isDemo = true
+        onSavedChange = nil
         defaults = demo
     }
 
@@ -111,7 +135,10 @@ final class AppSettings {
         didSet { defaults.set((try? recent.encoded()) ?? Data(), forKey: Keys.recent) }
     }
     var saved: SavedLinksStore {
-        didSet { defaults.set((try? saved.encoded()) ?? Data(), forKey: Keys.saved) }
+        didSet {
+            defaults.set((try? saved.encoded()) ?? Data(), forKey: Keys.saved)
+            if !isApplyingRemote { onSavedChange?(oldValue, saved) }
+        }
     }
     /// Where each long track (a mix) was left. Written on pause, seek, track change, quit, and every
     /// `PlayerEngine.positionSaveInterval` while playing.

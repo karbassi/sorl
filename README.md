@@ -131,7 +131,12 @@ sorl://speed?value=2         sorl://seek?to=90
 sorl://volume?value=0.5      sorl://mute          sorl://repeat?mode=one
 sorl://open                  sorl://settings      sorl://close         sorl://quit
 sorl://drawer?tab=saved      sorl://save          (toggle the playing track in Saved)
+sorl://sync                  (sync with iCloud now)
 ```
+
+Saved holds up to 500 links on each Mac. iCloud can hold more, so one Mac may show fewer than another.
+
+If a link is removed on one Mac while it's re-saved on another, the removal can win. Save it again if that happens.
 
 Percent-encode the `url` value (`&` becomes `%26`), or the link's own parameters are read as Sorl's.
 
