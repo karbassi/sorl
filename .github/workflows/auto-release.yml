@@ -12,7 +12,9 @@ on:
     branches: [main]
 
 # One release at a time, never cancelled. GitHub keeps one run pending and drops older pending ones, so a run
-# releases every PR merged since the last tag, not just its own: a dropped run's PR ships with the next one.
+# releases every PR merged since the last tag, not just its own: a dropped run's PR ships with the next one. The lock
+# alone isn't enough: a run's checkout can predate a merge that lands mid-run, so the script starts over from the new
+# main whenever its push is rejected, and a PR already released by an earlier run finds nothing to do.
 concurrency:
   group: auto-release
   cancel-in-progress: false
@@ -42,101 +44,9 @@ jobs:
           REPO: ${{ github.repository }}
           EVENT_PR: ${{ github.event.pull_request.number }}
           EVENT_SHA: ${{ github.event.pull_request.merge_commit_sha }}
-        run: |
-          set -euo pipefail
-
-          # Latest stable tag; prereleases like v0.2.0-rc.3 don't count.
-          last=$(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true)
-          if [[ -n "$last" ]]; then
-            range="$last..HEAD"
-          else
-            range="HEAD"
-          fi
-          echo "Last release: ${last:-none}"
-
-          # PRs merged since the last tag, read from main's merge commits, plus this event's PR if it isn't already
-          # released (covers a squash merge, which has no "Merge pull request" subject).
-          mapfile -t prs < <(git log --first-parent --merges --format=%s "$range" \
-            | sed -nE 's/^Merge pull request #([0-9]+) from .*/\1/p')
-          if [[ -z "$last" ]] || ! git merge-base --is-ancestor "$EVENT_SHA" "$last" 2>/dev/null; then
-            prs+=("$EVENT_PR")
-          fi
-          mapfile -t prs < <(printf '%s\n' "${prs[@]}" | sed '/^$/d' | sort -n -u)
-
-          bump=0 # 1 patch, 2 minor, 3 major
-          entries=""
-          for pr in "${prs[@]}"; do
-            json=$(gh pr view "$pr" --repo "$REPO" --json title,url,labels,mergedAt)
-            if [[ $(jq -r '.mergedAt // ""' <<<"$json") == "" ]]; then
-              continue
-            fi
-            labels=$(jq -r '.labels[].name' <<<"$json")
-            if grep -qx 'skip-release' <<<"$labels"; then
-              echo "#$pr: skip-release"
-              continue
-            fi
-            if grep -qx 'major' <<<"$labels"; then
-              level=3
-            elif grep -qx 'patch' <<<"$labels"; then
-              level=1
-            else
-              level=2
-            fi
-            if (( level > bump )); then bump=$level; fi
-            title=$(jq -r '.title' <<<"$json")
-            url=$(jq -r '.url' <<<"$json")
-            echo "#$pr: level $level, $title"
-            entries+="- ${title} ([#${pr}](${url}))"$'\n'
-          done
-
-          if (( bump == 0 )); then
-            echo "Nothing to release."
-            exit 0
-          fi
-
-          IFS=. read -r major minor patch <<<"${last#v}"
-          major=${major:-0} minor=${minor:-0} patch=${patch:-0}
-          case $bump in
-            3) major=$((major + 1)); minor=0; patch=0 ;;
-            2) minor=$((minor + 1)); patch=0 ;;
-            1) patch=$((patch + 1)) ;;
-          esac
-          tag="v$major.$minor.$patch"
-          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
-            echo "::error::$tag already exists"
-            exit 1
-          fi
-          echo "Releasing $tag"
-
-          # New section above the newest one (the first "## " line).
-          section="## [$tag](https://github.com/$REPO/releases/tag/$tag) - $(date -u +%Y-%m-%d)"$'\n\n'"$entries"
-          if [[ ! -f CHANGELOG.md ]]; then
-            printf '# Changelog\n\n' > CHANGELOG.md
-          fi
-          SECTION="$section" awk '
-            !done && /^## / { printf "%s\n", ENVIRON["SECTION"]; done = 1 }
-            { print }
-            END { if (!done) printf "\n%s", ENVIRON["SECTION"] }
-          ' CHANGELOG.md > CHANGELOG.md.new
-          mv CHANGELOG.md.new CHANGELOG.md
-          git --no-pager diff CHANGELOG.md
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add CHANGELOG.md
-          # A push with GITHUB_TOKEN starts no workflow, so this commit can't retrigger a release; [skip ci] keeps
-          # it that way if the token ever changes.
-          git commit -m "Release $tag [skip ci]"
-
-          # If main moved since checkout, replay the commit on top and try once more.
-          if ! git push origin HEAD:main; then
-            git pull --rebase origin main
-            git push origin HEAD:main
-          fi
-
-          git tag -a "$tag" -m "$tag"
-          git push origin "refs/tags/$tag"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+        # The script comes from main's checkout, like this file; nothing from the PR runs. It pushes the changelog
+        # commit and the tag in one atomic push and recomputes from scratch if main moved; see its header.
+        run: .github/scripts/auto-release.sh
 
   release:
     needs: tag
