@@ -123,7 +123,7 @@ struct SettingsView: View {
                 Text("Sync Saved and shortcuts")
                 Spacer(minLength: 10)
                 SettingsSwitch(label: "Sync Saved and shortcuts", isOn: Binding(
-                    get: { sync.isEnabled },
+                    get: { sync.isEnabled && sync.status != .unavailable },
                     set: { enabled in Task { await sync.setEnabled(enabled) } }
                 ))
                 .disabled(sync.status == .unavailable)
