@@ -26,6 +26,7 @@ let package = Package(
     ],
     targets: [
         // Pure-Swift core: link parsing, yt-dlp models/client, queue, formatting. No AppKit, unit-tested.
+        // It imports CloudKit only for record mapping (SyncRecords.swift, ShortcutSync.swift); no network calls here.
         .target(
             name: "SorlCore",
             swiftSettings: [
