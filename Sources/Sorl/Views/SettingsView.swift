@@ -364,6 +364,32 @@ struct ShortcutRecorder: View {
     @State private var monitor: Any?
 
     var body: some View {
+        HStack(spacing: 6) {
+            if !recording && shortcut != name.initialShortcut { resetButton }
+            chip
+        }
+        .onAppear { shortcut = KeyboardShortcuts.getShortcut(for: name) }
+        .onDisappear { stop() }
+    }
+
+    /// ↺, shown only while the shortcut differs from its default (cleared counts as changed).
+    private var resetButton: some View {
+        Button {
+            KeyboardShortcuts.reset(name)
+            shortcut = KeyboardShortcuts.getShortcut(for: name)
+        } label: {
+            Image(systemName: "arrow.counterclockwise")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(PanelStyle.strong)
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Reset to default")
+        .accessibilityLabel("Reset \(label) shortcut to default")
+    }
+
+    private var chip: some View {
         Button { recording ? stop() : start() } label: {
             Text(recording ? "Type keys…" : shortcut?.description ?? "Record")
                 .font(.system(size: 12))
@@ -379,8 +405,6 @@ struct ShortcutRecorder: View {
         .help(recording ? "Type the new shortcut. Esc cancels, Delete clears." : "Click to change")
         .accessibilityLabel("\(label) shortcut")
         .accessibilityValue(shortcut?.description ?? "None")
-        .onAppear { shortcut = KeyboardShortcuts.getShortcut(for: name) }
-        .onDisappear { stop() }
     }
 
     private func start() {
