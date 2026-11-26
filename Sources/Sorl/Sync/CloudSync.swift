@@ -37,6 +37,7 @@ final class CloudSync {
         static let user = "cloudSyncUser"
         static let times = "shortcutsModifiedAt"
         static let dirty = "cloudSyncDirty"
+        static let pollToken = "cloudSyncPollToken"
     }
 
     /// The account's sync key, which names Saved records. Until it is `.ready`, local changes are only journaled and
@@ -256,7 +257,9 @@ final class CloudSync {
             try await engine.fetchChanges()
         } catch {
             report(error, from: engine)
+            return
         }
+        await pollZone(engine)
     }
 
     private func fetch(_ engine: CKSyncEngine) async {
@@ -265,6 +268,46 @@ final class CloudSync {
             try await engine.fetchChanges()
         } catch {
             report(error, from: engine)
+            return
+        }
+        await pollZone(engine)
+    }
+
+    /// `CKSyncEngine.fetchChanges` only fetches zones the engine has already marked as changed, and only a push (or
+    /// the app becoming active) marks them: without one, an explicit fetch logs "no zone IDs needing to be fetched"
+    /// and runs no operation, any scope included. Pushes in the Development environment were seen to arrive minutes
+    /// late or not at all. So an explicit fetch also reads the zone's changes directly, with a change token of its
+    /// own, and hands them to the same handler as the engine's. Applying a change twice is harmless.
+    private func pollZone(_ engine: CKSyncEngine) async {
+        var token = pollToken()
+        var retried = false
+        while engine === self.engine, !isListening {
+            let result: (modificationResultsByID: [CKRecord.ID: Result<CKDatabase.RecordZoneChange.Modification, Error>],
+                         deletions: [CKDatabase.RecordZoneChange.Deletion], changeToken: CKServerChangeToken, moreComing: Bool)
+            do {
+                result = try await cloudContainer().privateCloudDatabase.recordZoneChanges(inZoneWith: SyncZone.id, since: token)
+            } catch let error as CKError where error.code == .changeTokenExpired && !retried {
+                retried = true
+                token = nil
+                continue
+            } catch let error as CKError where error.code == .zoneNotFound {
+                // The engine's database fetch reports the zone's deletion and handles it.
+                savePollToken(nil)
+                return
+            } catch {
+                report(error, from: engine)
+                return
+            }
+            guard engine === self.engine, !isListening else { return }
+            let records = result.modificationResultsByID.values.compactMap { try? $0.get().record }
+            let deletions = result.deletions.map { (name: $0.recordID.recordName, type: $0.recordType) }
+            if !records.isEmpty || !deletions.isEmpty {
+                log.notice("zone poll: \(records.count) changed, \(deletions.count) deleted")
+                handleFetched(records: records, deletions: deletions, engine: engine)
+            }
+            token = result.changeToken
+            savePollToken(token)
+            if !result.moreComing { return }
         }
     }
 
@@ -279,7 +322,7 @@ final class CloudSync {
         await stop()
         settings.syncEnabled = false
         let defaults = UserDefaults.standard
-        [Keys.state, Keys.dirty, Keys.user].forEach(defaults.removeObject(forKey:))
+        [Keys.state, Keys.dirty, Keys.user, Keys.pollToken].forEach(defaults.removeObject(forKey:))
         journal = []
         // The Keychain key stays: it is the account's, and is used again if the same account turns sync back on.
         keyState = .unknown
@@ -460,14 +503,36 @@ final class CloudSync {
             return
         }
         var wasReady = false
-        if case .ready(let current) = keyState {
+        var lostRace = false
+        switch keyState {
+        case .ready(let current):
             if Self.sameKey(current, key) { return }
             wasReady = true
+        case .creating:
+            lostRace = true
+        case .unknown, .fetching:
+            break
         }
         // A key of ours that was still being created lost the race: drop its pending save.
         engine.state.remove(pendingRecordZoneChanges: [.saveRecord(Self.syncKeyID)])
         becomeReady(key, engine: engine, dropSavedFields: wasReady)
         log.notice("sync key adopted from iCloud")
+        if lostRace { Task { await self.restartFromScratch(engine) } }
+    }
+
+    /// After losing the key race, this engine's change tokens predate the zone, which it then saved itself while
+    /// another Mac was filling it. Such an engine was seen to stop fetching the zone: later changes from other Macs
+    /// never arrived, while an engine started with no state fetched them. So the losing Mac starts over, like a
+    /// first sync with the key known: no saved state, a full fetch, and the journal (every local item, after
+    /// `becomeReady`) re-queued. Scheduled after the event, since replacing the engine awaits its operations.
+    private func restartFromScratch(_ old: CKSyncEngine) async {
+        guard old === engine, !isListening, readyKey != nil else { return }
+        UserDefaults.standard.removeObject(forKey: Keys.state)
+        let engine = await replaceEngine()
+        guard engine === self.engine, readyKey != nil else { return }
+        log.notice("sync engine restarted after the key race")
+        requeueJournal()
+        await fetch(engine)
     }
 
     /// The key is known and agreed with iCloud. Stores it, then re-derives every pending record change from the
@@ -512,6 +577,7 @@ final class CloudSync {
     /// Every local item goes back in the journal, to be uploaded under whichever key wins. Local data is untouched.
     private func zoneLost(_ engine: CKSyncEngine) {
         log.notice("zone deleted; re-creating it")
+        savePollToken(nil)
         if let keyUser { SyncKeyStore.delete(user: keyUser) }
         deferredDeletes = []
         loadedFields = [:]
@@ -618,7 +684,9 @@ final class CloudSync {
         case .fetchedDatabaseChanges(let changes):
             handleDatabaseChanges(changes, engine: syncEngine)
         case .fetchedRecordZoneChanges(let changes):
-            handleFetched(changes, engine: syncEngine)
+            handleFetched(records: changes.modifications.map(\.record),
+                          deletions: changes.deletions.map { (name: $0.recordID.recordName, type: $0.recordType) },
+                          engine: syncEngine)
         case .sentDatabaseChanges(let sent):
             for failure in sent.failedZoneSaves {
                 log.error("saving zone failed: \(String(describing: failure.error), privacy: .public)")
@@ -702,10 +770,11 @@ final class CloudSync {
     /// While the key is unknown, fetched Saved and Shortcut modifications are applied anyway (they carry their
     /// data, and a re-queue only journals), with pending changes read from the journal. Saved deletions name a
     /// record by its keyed hash, so they wait in `deferredDeletes` until the key is adopted.
-    private func handleFetched(_ changes: CKSyncEngine.Event.FetchedRecordZoneChanges, engine: CKSyncEngine) {
+    private func handleFetched(records: [CKRecord], deletions: [(name: String, type: CKRecord.RecordType)],
+                               engine: CKSyncEngine) {
         // The key first: the rest of this batch may need it.
-        for modification in changes.modifications where modification.record.recordType == SyncRecords.syncKeyType {
-            adoptKey(from: modification.record, engine: engine)
+        for record in records where record.recordType == SyncRecords.syncKeyType {
+            adoptKey(from: record, engine: engine)
         }
         let key = readyKey
         let (pendingSaves, pendingDeletes) = Self.pendingNames(engine)
@@ -727,8 +796,7 @@ final class CloudSync {
         var links: [(link: SavedLink, id: CKRecord.ID)] = []
         var requeue: [SyncItem] = []
 
-        for modification in changes.modifications {
-            let record = modification.record
+        for record in records {
             switch record.recordType {
             case SyncRecords.syncKeyType:
                 continue
@@ -757,8 +825,8 @@ final class CloudSync {
             }
         }
 
-        let savedDeletes = changes.deletions.filter { $0.recordType == SyncRecords.savedLinkType }.map(\.recordID.recordName)
-        for deletion in changes.deletions { dropSystemFields(deletion.recordID.recordName) }
+        let savedDeletes = deletions.filter { $0.type == SyncRecords.savedLinkType }.map(\.name)
+        for deletion in deletions { dropSystemFields(deletion.name) }
         var deletesNow: [String] = []
         if key != nil { deletesNow = savedDeletes } else { deferredDeletes += savedDeletes }
 
@@ -1049,6 +1117,19 @@ final class CloudSync {
     private func saveState(_ state: CKSyncEngine.State.Serialization) {
         guard let data = try? JSONEncoder().encode(state) else { return }
         UserDefaults.standard.set(data, forKey: Keys.state)
+    }
+
+    private func pollToken() -> CKServerChangeToken? {
+        guard let data = UserDefaults.standard.data(forKey: Keys.pollToken) else { return nil }
+        return try? NSKeyedUnarchiver.unarchivedObject(ofClass: CKServerChangeToken.self, from: data)
+    }
+
+    private func savePollToken(_ token: CKServerChangeToken?) {
+        guard let token, let data = try? NSKeyedArchiver.archivedData(withRootObject: token, requiringSecureCoding: true) else {
+            UserDefaults.standard.removeObject(forKey: Keys.pollToken)
+            return
+        }
+        UserDefaults.standard.set(data, forKey: Keys.pollToken)
     }
 
     private func saveTimes() {
