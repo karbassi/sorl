@@ -2,6 +2,10 @@
 
 Every PR merged into `main` is released automatically; `.github/workflows/auto-release.yml` adds its section here.
 
+## [v1.3.1](https://github.com/karbassi/sorl/releases/tag/v1.3.1) - 2026-11-26
+
+- Sign and notarize releases with Developer ID ([#23](https://github.com/karbassi/sorl/pull/23))
+
 ## [v1.3.0](https://github.com/karbassi/sorl/releases/tag/v1.3.0) - 2026-11-24
 
 - Show cached artwork on a page's first frame ([#8](https://github.com/karbassi/sorl/pull/8))
