@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds Sorl with SwiftPM and assembles a signed (ad-hoc) .app bundle in build/.
+# Builds Sorl with SwiftPM and assembles a signed .app bundle in build/ (ad-hoc, or dev/Developer ID signed when SORL_SIGN_IDENTITY and SORL_PROFILE are set).
 # No Xcode required: works with the Command Line Tools alone.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -14,6 +14,22 @@ OUT="build/$APP.app"
 # ARCHS="arm64 x86_64" builds a universal binary (releases do); unset builds for this Mac only.
 ARCH_ARGS=""
 for arch in ${ARCHS:-}; do ARCH_ARGS="$ARCH_ARGS --arch $arch"; done
+
+# Signing mode, checked before building. Neither SORL_SIGN_IDENTITY nor SORL_PROFILE: ad-hoc, no entitlements.
+# Both: sign with that identity, embed the profile and the iCloud entitlements (hardened runtime).
+DEV_SIGN=""
+if [ -n "${SORL_SIGN_IDENTITY:-}" ] || [ -n "${SORL_PROFILE:-}" ]; then
+  [ -n "${SORL_SIGN_IDENTITY:-}" ] && [ -n "${SORL_PROFILE:-}" ] \
+    || { echo "set both SORL_SIGN_IDENTITY and SORL_PROFILE, or neither" >&2; exit 1; }
+  [ -f "$SORL_PROFILE" ] || { echo "SORL_PROFILE does not point to a file" >&2; exit 1; }
+  [ -n "${SORL_TEAM_ID:-}" ] || { echo "SORL_TEAM_ID is required when signing" >&2; exit 1; }
+  case "${SORL_CK_ENV:-}" in
+    Development) APS_ENV="development" ;;
+    Production) APS_ENV="production" ;;
+    *) echo "SORL_CK_ENV must be Development or Production" >&2; exit 1 ;;
+  esac
+  DEV_SIGN=1
+fi
 
 echo "▸ swift build -c $CONFIG --product $APP$ARCH_ARGS"
 # Build only the app product: the SorlSelfTest target needs -enable-testing, which is debug-only.
@@ -46,8 +62,20 @@ for bundle in "$(dirname "$BIN")"/*.bundle; do
   [ -d "$bundle" ] && cp -R "$bundle" "$OUT/Contents/Resources/"
 done
 
-# Sign last: the signature seals Info.plist. Ad-hoc identity ("-") is enough for a locally built app.
-codesign --force --sign - --identifier "$BUNDLE_ID" "$OUT"
+# Sign last: the signature seals Info.plist.
+if [ -z "$DEV_SIGN" ]; then
+  # Ad-hoc identity ("-") is enough for a locally built app.
+  codesign --force --sign - --identifier "$BUNDLE_ID" "$OUT"
+else
+  echo "▸ signing (CloudKit $SORL_CK_ENV)"
+  cp "$SORL_PROFILE" "$OUT/Contents/embedded.provisionprofile"
+  sed -e "s/__TEAM_ID__/$SORL_TEAM_ID/g" -e "s/__CK_ENV__/$SORL_CK_ENV/g" -e "s/__APS_ENV__/$APS_ENV/g" \
+    Resources/Sorl.entitlements > build/Sorl.entitlements
+  # No --deep: the only nested bundle (KeyboardShortcuts' resources) holds no code.
+  codesign --force --options runtime --timestamp --entitlements build/Sorl.entitlements \
+    --sign "$SORL_SIGN_IDENTITY" ${SORL_KEYCHAIN:+--keychain "$SORL_KEYCHAIN"} "$OUT"
+  codesign --verify --strict --verbose=2 "$OUT"
+fi
 # Let Launch Services pick up the (possibly changed) Info.plist and URL scheme.
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$OUT" >/dev/null 2>&1 || true
 echo "✓ $OUT"

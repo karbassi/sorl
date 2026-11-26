@@ -72,7 +72,7 @@ Other tasks (`mise tasks` lists them):
 
 | Command | What it does |
 |---|---|
-| `mise run build` | Build `build/Sorl.app` (ad-hoc signed) without installing. |
+| `mise run build` | Build `build/Sorl.app` without installing. Ad-hoc signed unless the signing variables are set (see Signing). |
 | `mise run run` | Build and launch from `build/`. |
 | `mise run dev` | Build and run in the foreground with logs in the terminal. |
 | `mise run test` | Run the unit tests. |
@@ -82,6 +82,36 @@ Other tasks (`mise tasks` lists them):
 | `mise run uninstall` | Quit and remove `/Applications/Sorl.app`. |
 
 To launch it at login, install to `/Applications` and turn on **Open at login** in Settings.
+
+### Signing
+
+By default `mise run build` signs the app ad hoc. An ad-hoc build works, but it can't sync with iCloud. To sign with your own Apple Development certificate, set these environment variables:
+
+| Variable | What it is |
+|---|---|
+| `SORL_SIGN_IDENTITY` | SHA-1 of the signing certificate (`security find-identity -v -p codesigning` lists them). |
+| `SORL_PROFILE` | Path to a provisioning profile for `com.karbassi.sorl` with iCloud (CloudKit) enabled. |
+| `SORL_TEAM_ID` | Your Apple Developer Team ID. |
+| `SORL_CK_ENV` | CloudKit environment: `Development` or `Production`. |
+| `SORL_KEYCHAIN` | Optional. The keychain that holds the certificate, if it isn't in your default keychains. |
+
+Set both `SORL_SIGN_IDENTITY` and `SORL_PROFILE`, or neither. Setting only one is an error. With both set, `SORL_TEAM_ID` and `SORL_CK_ENV` are required.
+
+The easiest place for them is a `.mise.local.toml` in the repo root. It's gitignored, so it stays on your Mac. Keep the profile outside the repo.
+
+```toml
+[env]
+SORL_SIGN_IDENTITY = "<SHA-1 of your Apple Development cert>"
+SORL_PROFILE = "{{env.HOME}}/Library/Developer/Sorl/<your profile>.provisionprofile"
+SORL_TEAM_ID = "<your Team ID>"
+SORL_CK_ENV = "Development"
+```
+
+Run `mise trust` after creating it. To build ad hoc again without deleting it, run `env -u SORL_SIGN_IDENTITY -u SORL_PROFILE ./scripts/bundle.sh`.
+
+Dev builds use the CloudKit Development environment and releases use Production, so the two never share data. What a dev build syncs won't show up in a release build, and the other way round.
+
+The first release signed with Developer ID may ask you to approve **Open at login** again, since macOS sees a new signature. Turn it back on in Settings if it's off.
 
 ## Using it
 
