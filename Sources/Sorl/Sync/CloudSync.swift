@@ -1,3 +1,4 @@
+import AppKit
 import CloudKit
 import CryptoKit
 import Foundation
@@ -107,9 +108,9 @@ final class CloudSync {
     @ObservationIgnored private let settings: AppSettings
     @ObservationIgnored private let log = Logger(subsystem: "com.karbassi.sorl", category: "sync")
     @ObservationIgnored private var container: CKContainer?
-    @ObservationIgnored private var engine: CKSyncEngine?
+    @ObservationIgnored private var engine: CKSyncEngine? { didSet { updatePollTimer() } }
     /// Signed out: the engine stays alive only to report account changes; every other event is ignored.
-    @ObservationIgnored private var isListening = false
+    @ObservationIgnored private var isListening = false { didSet { updatePollTimer() } }
     @ObservationIgnored private var isStarting = false
     /// The last `start()` couldn't determine the account; the next `fetchNow`/`syncNow` retries it.
     @ObservationIgnored private var needsStart = false
@@ -126,11 +127,18 @@ final class CloudSync {
     @ObservationIgnored private var fieldsDirty = false
     @ObservationIgnored private var saveFieldsTask: Task<Void, Never>?
     @ObservationIgnored private var mapCache: (store: SavedLinksStore, map: [String: URL])?
-    @ObservationIgnored private var keyState = KeyState.unknown
+    @ObservationIgnored private var keyState = KeyState.unknown { didSet { updatePollTimer() } }
     /// The iCloud user record name: the Keychain account the key is stored under.
     @ObservationIgnored private var keyUser: String?
     /// Saved deletions fetched before the key was known; mapped once it is adopted, dropped if a new key is made.
     @ObservationIgnored private var deferredDeletes: [String] = []
+    /// The background poll (see `SyncPoll`). Exists only while sync can run and the Mac is awake and unlocked.
+    @ObservationIgnored private var pollTimer: Timer?
+    /// When a fetch last finished without error; the poll waits a full interval after it.
+    @ObservationIgnored private var lastFetchSuccess: Date?
+    @ObservationIgnored private var isAsleep = false
+    @ObservationIgnored private var isScreenLocked = false
+    @ObservationIgnored private var powerObservers: [NSObjectProtocol] = []
 
     init(settings: AppSettings) {
         self.settings = settings
@@ -141,6 +149,7 @@ final class CloudSync {
         journal = Set(valid)
         times = ShortcutTimes(decoding: UserDefaults.standard.data(forKey: Keys.times) ?? Data())
         if valid.count != stored.count { saveJournal() }
+        observeSleepAndLock()
     }
 
     // MARK: Enable, launch and disable
@@ -307,7 +316,10 @@ final class CloudSync {
             }
             token = result.changeToken
             savePollToken(token)
-            if !result.moreComing { return }
+            if !result.moreComing {
+                fetchSucceeded()
+                return
+            }
         }
     }
 
@@ -335,7 +347,81 @@ final class CloudSync {
         try? FileManager.default.removeItem(at: Self.fieldsURL)
         needsStart = false
         lastFetchRequest = nil
+        lastFetchSuccess = nil
         cycleProblem = nil
+    }
+
+    // MARK: Background poll
+
+    /// Pushes can be minutes late or never arrive, so while sync can run a timer fetches every `SyncPoll.interval`.
+    /// It is created and dropped as the engine, the key, sleep and the screen lock change; with sync off it never
+    /// exists. A successful fetch from any trigger starts the wait over.
+    private var shouldPoll: Bool {
+        SyncPoll.shouldRun(SyncPoll.Conditions(
+            syncEnabled: settings.syncEnabled, isDemo: settings.isDemo,
+            engineRunning: engine != nil && !isListening, keyReady: readyKey != nil,
+            isAsleep: isAsleep, isScreenLocked: isScreenLocked
+        ))
+    }
+
+    private func updatePollTimer() {
+        guard shouldPoll else {
+            if pollTimer != nil {
+                pollTimer?.invalidate()
+                pollTimer = nil
+                log.notice("poll timer stopped")
+            }
+            return
+        }
+        guard pollTimer == nil else { return }
+        schedulePoll(after: SyncPoll.delay(lastSuccess: lastFetchSuccess, now: Date()))
+    }
+
+    private func schedulePoll(after delay: TimeInterval) {
+        let wasRunning = pollTimer != nil
+        pollTimer?.invalidate()
+        let timer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.pollTimerFired() }
+        }
+        timer.tolerance = SyncPoll.tolerance
+        RunLoop.main.add(timer, forMode: .common)
+        pollTimer = timer
+        if !wasRunning { log.notice("poll timer armed: \(Int(delay))s") }
+    }
+
+    private func pollTimerFired() {
+        guard shouldPoll else {
+            pollTimer = nil
+            log.notice("poll timer stopped")
+            return
+        }
+        log.notice("poll timer fired")
+        // A failed fetch leaves this full-interval retry in place; a successful one restarts it from now.
+        schedulePoll(after: SyncPoll.interval)
+        fetchNow()
+    }
+
+    private func fetchSucceeded() {
+        lastFetchSuccess = Date()
+        if pollTimer != nil { schedulePoll(after: SyncPoll.interval) } else { updatePollTimer() }
+    }
+
+    private func observeSleepAndLock() {
+        let workspace = NSWorkspace.shared.notificationCenter
+        let distributed = DistributedNotificationCenter.default()
+        func observe(_ center: NotificationCenter, _ name: Notification.Name, _ body: @escaping @MainActor (CloudSync) -> Void) {
+            powerObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    body(self)
+                    self.updatePollTimer()
+                }
+            })
+        }
+        observe(workspace, NSWorkspace.willSleepNotification) { $0.isAsleep = true }
+        observe(workspace, NSWorkspace.didWakeNotification) { $0.isAsleep = false }
+        observe(distributed, Notification.Name("com.apple.screenIsLocked")) { $0.isScreenLocked = true }
+        observe(distributed, Notification.Name("com.apple.screenIsUnlocked")) { $0.isScreenLocked = false }
     }
 
     // MARK: Container and engine
