@@ -88,10 +88,19 @@ struct NowPlayingHeader: View {
 
     /// The star always saves the video playing, even inside a playlist.
     private func toggleSaved() {
-        let before = settings.saved
+        guard let url = engine.savableTrack?.url else { return }
+        let removed = settings.saved.items.first { $0.url == url }
         engine.toggleSavedTrack()
-        let message = engine.isTrackSaved ? "Added to Saved" : "Removed from Saved"
-        toasts.showUndo(message) { settings.saved = before }
+        let saved = settings.saved.contains(url)
+        let message = saved ? "Added to Saved" : "Removed from Saved"
+        toasts.showUndo(message) {
+            if saved {
+                settings.saved.remove(url)
+            } else if let link = removed {
+                settings.saved.save(url: link.url, title: link.title, kind: link.kind, duration: link.duration,
+                                    count: link.count, date: link.savedAt)
+            }
+        }
     }
 }
 

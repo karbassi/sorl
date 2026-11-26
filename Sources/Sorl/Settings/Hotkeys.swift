@@ -9,6 +9,9 @@ extension KeyboardShortcuts.Name {
 }
 
 enum Hotkeys {
+    /// Every shortcut name, in Settings order (what iCloud sync mirrors).
+    static var all: [KeyboardShortcuts.Name] { SettingsView.hotkeys.map(\.name) }
+
     static func install(engine: PlayerEngine, panel: PanelController) {
         KeyboardShortcuts.onKeyUp(for: .togglePanel) { panel.toggle() }
         KeyboardShortcuts.onKeyUp(for: .togglePlayPause) { engine.togglePlayPause() }

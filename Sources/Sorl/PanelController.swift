@@ -134,6 +134,7 @@ final class PanelController {
     private let hosting: NSHostingView<PanelRoot>
     private let settings: AppSettings
     private let engine: PlayerEngine
+    private let cloudSync: CloudSync
     private var contentSize = CGSize(width: PanelController.width, height: 220)
     private var globalMonitor: Any?
     private var localMouseMonitor: Any?
@@ -153,9 +154,10 @@ final class PanelController {
     /// The page slide's curve. The window's shrink follows it too, so its bottom edge moves with the sheet.
     static let pageSpring = Spring.snappy(duration: pageTransition)
 
-    init(settings: AppSettings, engine: PlayerEngine, service: YTDLPService) {
+    init(settings: AppSettings, engine: PlayerEngine, service: YTDLPService, cloudSync: CloudSync) {
         self.settings = settings
         self.engine = engine
+        self.cloudSync = cloudSync
         panel = GlassPanel(
             contentRect: NSRect(origin: .zero, size: Self.windowSize(for: contentSize)),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -178,7 +180,7 @@ final class PanelController {
         panel.animationBehavior = .none
         panel.titleVisibility = .hidden
 
-        hosting = NSHostingView(rootView: PanelRoot(engine: engine, settings: settings, service: service, state: state))
+        hosting = NSHostingView(rootView: PanelRoot(engine: engine, settings: settings, service: service, state: state, cloudSync: cloudSync))
         hosting.sizingOptions = []
         state.controller = self
         rebuildBackdrop()
@@ -227,6 +229,7 @@ final class PanelController {
         }
         // A link on the clipboard is resolved in the background, so ⌘V or Play plays it at once.
         if let link = Self.clipboardLink() { engine.warm(link) }
+        cloudSync.fetchNow()   // throttled to once a minute; a no-op with sync off
         state.showCount += 1
         cancelFrameAnimation()
         position(relativeTo: button)

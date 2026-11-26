@@ -11,6 +11,7 @@ struct PanelRoot: View {
     let settings: AppSettings
     let service: YTDLPService
     let state: PanelState
+    let cloudSync: CloudSync
     @State private var toasts = ToastCenter()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -49,6 +50,7 @@ struct PanelRoot: View {
         .environment(service)
         .environment(state)
         .environment(toasts)
+        .environment(cloudSync)
         .environment(\.forcedHover, state.forcedHover)
         .onChange(of: state.demoToast?.id) {
             guard let toast = state.demoToast else { return }

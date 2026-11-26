@@ -12,6 +12,7 @@ struct SettingsView: View {
     @Environment(YTDLPService.self) private var service
     @Environment(PanelState.self) private var state
     @Environment(ToastCenter.self) private var toasts
+    @Environment(CloudSync.self) private var cloudSync
     @State private var launchAtLogin = LaunchAtLogin.isEnabled
     @State private var loginRequiresApproval = LaunchAtLogin.status == .requiresApproval
     @State private var loginError: String?
@@ -42,6 +43,7 @@ struct SettingsView: View {
                                 .padding(.bottom, 4)
                         }
                         general
+                        iCloud
                         shortcuts
                         downloads
                     }
@@ -111,6 +113,56 @@ struct SettingsView: View {
         } else if !LaunchAtLogin.isAvailable {
             SettingsNote("Open at login works once the app is installed (mise run install).")
         }
+    }
+
+    @ViewBuilder private var iCloud: some View {
+        let sync = cloudSync
+        SettingsSectionHeader("iCloud")
+        SettingsGroup {
+            SettingsRow {
+                Text("Sync Saved and shortcuts")
+                Spacer(minLength: 10)
+                SettingsSwitch(label: "Sync Saved and shortcuts", isOn: Binding(
+                    get: { sync.isEnabled && sync.status != .unavailable },
+                    set: { enabled in Task { await sync.setEnabled(enabled) } }
+                ))
+                .disabled(sync.status == .unavailable)
+            }
+        }
+        if case .upToDate(let date) = sync.status {
+            // Refreshes the relative time while Settings is open.
+            TimelineView(.periodic(from: .now, by: 30)) { context in
+                SettingsNote("Up to date · \(Self.relative(date, now: context.date))")
+            }
+        } else {
+            SettingsNote(Self.syncNote(sync.status))
+        }
+    }
+
+    static func syncNote(_ status: CloudSync.Status) -> String {
+        switch status {
+        case .off:
+            "Keeps Saved and your shortcuts the same on every Mac signed in to your iCloud account. Turning it on merges this Mac's Saved with iCloud's."
+        case .unavailable: "This copy of Sorl can't use iCloud. Install it from Homebrew or a release."
+        case .signedOut, .error(.notAuthenticated): "Sign in to iCloud in System Settings to sync."
+        case .accountChanged:
+            "Your iCloud account changed. Turning sync on again adds this Mac's Saved and shortcuts to the new account."
+        case .cloudDataDeleted:
+            "Sorl's iCloud data was deleted. Turning sync on again uploads this Mac's Saved and shortcuts."
+        case .syncing: "Syncing…"
+        case .upToDate: "Up to date"
+        case .error(.offline): "You're offline. Sorl will sync when you're back."
+        case .error(.quotaExceeded): "Your iCloud storage is full."
+        case .error(.other): "Couldn't sync. Sorl will try again."
+        }
+    }
+
+    /// "just now" under a minute, then "2 minutes ago".
+    static func relative(_ date: Date, now: Date) -> String {
+        guard now.timeIntervalSince(date) >= 60 else { return "just now" }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        return formatter.localizedString(for: date, relativeTo: now)
     }
 
     @ViewBuilder private var shortcuts: some View {
