@@ -2,6 +2,10 @@
 
 Every PR merged into `main` is released automatically; `.github/workflows/auto-release.yml` adds its section here.
 
+## [v1.4.0](https://github.com/karbassi/sorl/releases/tag/v1.4.0) - 2026-11-26
+
+- Reset a changed shortcut to its default from Settings ([#24](https://github.com/karbassi/sorl/pull/24))
+
 ## [v1.3.1](https://github.com/karbassi/sorl/releases/tag/v1.3.1) - 2026-11-26
 
 - Sign and notarize releases with Developer ID ([#23](https://github.com/karbassi/sorl/pull/23))
