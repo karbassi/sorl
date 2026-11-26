@@ -66,6 +66,13 @@ Research into how comparable menu bar apps handle Settings and Quit, and a propo
 │ Show the title in the menu bar     [ ◯]  │
 │ (if needed) Approve in System Settings…  │
 │                                          │
+│ iCloud                                   │
+│ Sync Saved and shortcuts           [ ◯]  │
+│ Keeps Saved and your shortcuts the same  │
+│ on every Mac signed in to your iCloud    │
+│ account. Turning it on merges this Mac's │
+│ Saved with iCloud's.                     │
+│                                          │
 │ Keyboard shortcuts                       │
 │ Play or pause                    ⌃⌥P     │
 │ Next                             ⌃⌥→     │
@@ -93,9 +100,19 @@ Research into how comparable menu bar apps handle Settings and Quit, and a propo
 
 **Styling:** 32pt rows on white, with sentence-case section headers styled like the drawer's. Switches and shortcut recorders are aligned right, and links use the accent color.
 
+**iCloud note:** one switch, "Sync Saved and shortcuts", then a note that follows the sync status. The switch is disabled when this copy can't use iCloud. The layout shows the off state; the other notes are:
+- Unavailable: "This copy of Sorl can't use iCloud. Install it from Homebrew or a release."
+- Signed out: "Sign in to iCloud in System Settings to sync."
+- Account changed: "Your iCloud account changed. Turning sync on again adds this Mac's Saved and shortcuts to the new account."
+- Cloud data deleted: "Sorl's iCloud data was deleted. Turning sync on again uploads this Mac's Saved and shortcuts."
+- Syncing: "Syncing…"
+- Up to date: "Up to date" with a relative time.
+- Errors: "You're offline. Sorl will sync when you're back.", "Your iCloud storage is full.", "Sign in to iCloud in System Settings to sync." or "Couldn't sync. Sorl will try again."
+
 **Real settings**
 - the 5 hotkeys
 - Open at login
+- iCloud sync (Saved and shortcuts)
 - Show the title in the menu bar
 - the yt-dlp path override
 

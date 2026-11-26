@@ -50,6 +50,7 @@ struct PanelRoot: View {
         .environment(service)
         .environment(state)
         .environment(toasts)
+        .environment(cloudSync)
         .environment(\.forcedHover, state.forcedHover)
         .onChange(of: state.demoToast?.id) {
             guard let toast = state.demoToast else { return }
