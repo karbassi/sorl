@@ -17,6 +17,22 @@ on:
     secrets:
       HOMEBREW_TAP_TOKEN:
         required: false
+      # The signing secrets come from the `release` environment on the build job, which takes precedence
+      # over anything a caller passes. They are listed here only so actionlint knows the names.
+      DEVELOPER_ID_P12_BASE64:
+        required: false
+      DEVELOPER_ID_P12_PASSWORD:
+        required: false
+      DEVELOPER_ID_PROFILE_BASE64:
+        required: false
+      NOTARY_KEY_P8_BASE64:
+        required: false
+      NOTARY_KEY_ID:
+        required: false
+      NOTARY_ISSUER_ID:
+        required: false
+      SIGNING_KEYCHAIN_PASSWORD:
+        required: false
   workflow_dispatch:
     inputs:
       tag:
@@ -27,6 +43,8 @@ on:
 jobs:
   build:
     runs-on: macos-26
+    # Signing and notary secrets live only in this environment (deployments limited to main and v* tags).
+    environment: release
     permissions:
       contents: write
     env:
@@ -39,6 +57,47 @@ jobs:
         with:
           ref: refs/tags/${{ inputs.tag || github.ref_name }}
           fetch-depth: 0 # bundle.sh numbers the build from the commit count
+
+      # Secrets stay in this step's env and are decoded into $RUNNER_TEMP only; never echo them.
+      - name: Set up signing
+        env:
+          P12_B64: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
+          P12_PW: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+          PROFILE_B64: ${{ secrets.DEVELOPER_ID_PROFILE_BASE64 }}
+          NOTARY_P8_B64: ${{ secrets.NOTARY_KEY_P8_BASE64 }}
+          KC_PW: ${{ secrets.SIGNING_KEYCHAIN_PASSWORD }}
+        run: |
+          KC="$RUNNER_TEMP/sorl.keychain-db"
+          umask 077
+          printf '%s' "$P12_B64" | base64 --decode > "$RUNNER_TEMP/sorl.p12"
+          printf '%s' "$PROFILE_B64" | base64 --decode > "$RUNNER_TEMP/sorl.provisionprofile"
+          printf '%s' "$NOTARY_P8_B64" | base64 --decode > "$RUNNER_TEMP/notary.p8"
+
+          security create-keychain -p "$KC_PW" "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p "$KC_PW" "$KC"
+          # shellcheck disable=SC2046 # word-split the existing keychain list on purpose
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+          security import "$RUNNER_TEMP/sorl.p12" -k "$KC" -P "$P12_PW" -T /usr/bin/codesign
+          # Public Apple intermediate, so the Developer ID chain builds.
+          curl -fsSL https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer -o "$RUNNER_TEMP/DeveloperIDG2CA.cer"
+          security import "$RUNNER_TEMP/DeveloperIDG2CA.cer" -k "$KC"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KC_PW" "$KC" >/dev/null
+
+          # Keep only the SHA-1; the full find-identity output is never printed.
+          sha1=$(security find-identity -v -p codesigning "$KC" | awk '/Developer ID Application/ { print $2; exit }')
+          if ! [[ "$sha1" =~ ^[0-9A-F]{40}$ ]]; then
+            echo "::error::No valid Developer ID Application identity in the signing keychain"
+            exit 1
+          fi
+
+          {
+            echo "SORL_SIGN_IDENTITY=$sha1"
+            echo "SORL_KEYCHAIN=$KC"
+            echo "SORL_PROFILE=$RUNNER_TEMP/sorl.provisionprofile"
+            echo "SORL_TEAM_ID=6P945NDV84"
+            echo "SORL_CK_ENV=Production"
+          } >> "$GITHUB_ENV"
 
       - name: Build and sign
         run: |
@@ -55,6 +114,44 @@ jobs:
 
       - name: Create zip
         run: ditto -c -k --sequesterRsrc --keepParent build/Sorl.app Sorl.zip
+
+      # Before "Create release", so a failed notarization never publishes a release.
+      - name: Notarize
+        env:
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          # `|| true`: the step runs under bash -e, and a non-zero exit would skip the log fetch below.
+          OUT=$(xcrun notarytool submit Sorl.zip \
+            --key "$RUNNER_TEMP/notary.p8" \
+            --key-id "$NOTARY_KEY_ID" \
+            --issuer "$NOTARY_ISSUER_ID" \
+            --wait --output-format json) || true
+          id=$(jq -r '.id // empty' <<<"$OUT" 2>/dev/null || true)
+          if [ -z "$OUT" ] || [ -z "$id" ]; then
+            echo "::error::notary submit failed"
+            exit 1
+          fi
+          status=$(jq -r '.status // empty' <<<"$OUT")
+          if [ "$status" != "Accepted" ]; then
+            echo "::error::Notarization status: ${status:-unknown}"
+            xcrun notarytool log "$id" \
+              --key "$RUNNER_TEMP/notary.p8" \
+              --key-id "$NOTARY_KEY_ID" \
+              --issuer "$NOTARY_ISSUER_ID" || true
+            exit 1
+          fi
+
+          xcrun stapler staple build/Sorl.app
+          xcrun stapler validate build/Sorl.app
+
+          # Re-zip so the release carries the stapled app; same ditto line as "Create zip".
+          rm -f Sorl.zip
+          ditto -c -k --sequesterRsrc --keepParent build/Sorl.app Sorl.zip
+          zipinfo -1 Sorl.zip | grep -E '\.(p12|p8)$' && exit 1 || true
+
+          # Informational only: runners may have Gatekeeper off.
+          spctl -a -t exec -vv build/Sorl.app || true
 
       - name: Create release
         env:
@@ -83,3 +180,10 @@ jobs:
           repository: karbassi/homebrew-tap
           event-type: release
           client-payload: '{"cask": "sorl"}'
+
+      # Literal paths: shell variables like $KC don't survive between steps.
+      - name: Clean up signing
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/sorl.keychain-db" || true
+          rm -f "$RUNNER_TEMP"/sorl.p12 "$RUNNER_TEMP"/notary.p8 "$RUNNER_TEMP"/sorl.provisionprofile

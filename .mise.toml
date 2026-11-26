@@ -1,5 +1,5 @@
 [tasks.build]
-description = "Build build/Sorl.app (release, ad-hoc signed)"
+description = "Build build/Sorl.app (release; dev-signed when SORL_SIGN_IDENTITY and SORL_PROFILE are set, otherwise ad-hoc)"
 run = "./scripts/bundle.sh"
 
 [tasks.run]

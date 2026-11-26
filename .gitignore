@@ -12,3 +12,14 @@ Vendor/*/.build/
 
 # Local Claude Code worktrees/agents
 .claude/
+
+# Signing secrets and local env: never commit
+*.p12
+*.p8
+*.cer
+*.mobileprovision
+*.provisionprofile
+*.keychain-db
+.mise.local.toml
+mise.local.toml
+.mise.*.local.toml
