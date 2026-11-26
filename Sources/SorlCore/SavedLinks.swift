@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 public struct SavedLink: Codable, Equatable, Sendable, Identifiable {
@@ -104,9 +105,10 @@ public struct SavedLinksStore: Equatable, Sendable {
             && SyncDate.trunc(a.savedAt) == SyncDate.trunc(b.savedAt)
     }
 
-    /// Record name to URL for every local link, built once per sync event so deletes need no hashing per lookup.
-    public func recordNameMap() -> [String: URL] {
-        Dictionary(items.map { (SyncRecords.savedRecordName(for: $0.url), $0.url) }, uniquingKeysWith: { first, _ in first })
+    /// Record name (under `key`) to URL for every local link, built once per sync event so deletes need no hashing
+    /// per lookup.
+    public func recordNameMap(key: SymmetricKey) -> [String: URL] {
+        Dictionary(items.map { (SyncRecords.savedRecordName(for: $0.url, key: key), $0.url) }, uniquingKeysWith: { first, _ in first })
     }
 
     /// Applies a link fetched from iCloud. Returns false when the local copy is strictly newer (whole seconds), so the
@@ -125,7 +127,7 @@ public struct SavedLinksStore: Equatable, Sendable {
         return true
     }
 
-    /// Removes the link a deleted record named, via `recordNameMap()`. Unknown names are ignored, and so is the delete
+    /// Removes the link a deleted record named, via `recordNameMap(key:)`. Unknown names are ignored, and so is the delete
     /// when a local save of that link is still pending, so the re-save wins.
     public mutating func applyRemoteDelete(recordName: String, map: [String: URL], hasPendingSave: Bool = false) {
         guard !hasPendingSave, let url = map[recordName] else { return }

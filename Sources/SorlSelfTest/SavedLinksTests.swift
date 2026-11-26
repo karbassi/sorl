@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Testing
 @testable import SorlCore
@@ -184,17 +185,23 @@ import Testing
 
     @Test func remoteDeleteGoesThroughTheRecordNameMap() {
         var store = SavedLinksStore(items: [Self.link(2, 2), Self.link(1, 1)])
-        let map = store.recordNameMap()
+        let key = SymmetricKey(size: .bits256)
+        let map = store.recordNameMap(key: key)
         #expect(map.count == 2)
-        #expect(map[SyncRecords.savedRecordName(for: Self.url(1))] == Self.url(1))
+        #expect(map[SyncRecords.savedRecordName(for: Self.url(1), key: key)] == Self.url(1))
 
         store.applyRemoteDelete(recordName: "saved-" + String(repeating: "0", count: 64), map: map)
         #expect(store.items.count == 2)
 
-        store.applyRemoteDelete(recordName: SyncRecords.savedRecordName(for: Self.url(1)), map: map, hasPendingSave: true)
+        // A name made with another key matches nothing.
+        let otherName = SyncRecords.savedRecordName(for: Self.url(1), key: SymmetricKey(size: .bits256))
+        store.applyRemoteDelete(recordName: otherName, map: map)
+        #expect(store.items.count == 2)
+
+        store.applyRemoteDelete(recordName: SyncRecords.savedRecordName(for: Self.url(1), key: key), map: map, hasPendingSave: true)
         #expect(store.contains(Self.url(1)))
 
-        store.applyRemoteDelete(recordName: SyncRecords.savedRecordName(for: Self.url(1)), map: map)
+        store.applyRemoteDelete(recordName: SyncRecords.savedRecordName(for: Self.url(1), key: key), map: map)
         #expect(store.items.map(\.url) == [Self.url(2)])
     }
 }

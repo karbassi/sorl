@@ -136,6 +136,8 @@ sorl://sync                  (sync with iCloud now)
 
 Saved holds up to 500 links on each Mac. iCloud can hold more, so one Mac may show fewer than another.
 
+Sync stores a random key in your Keychain (one per iCloud account) and names each record in iCloud with it, so record names reveal nothing about your saved links.
+
 If a link is removed on one Mac while it's re-saved on another, the removal can win. Save it again if that happens.
 
 Percent-encode the `url` value (`&` becomes `%26`), or the link's own parameters are read as Sorl's.

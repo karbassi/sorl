@@ -76,7 +76,7 @@ import Testing
         #expect(setRecord.recordType == ShortcutSync.shortcutType)
         #expect(setRecord.recordID.recordName == "shortcut-togglePlay")
         #expect(setRecord.recordID.zoneID == SyncZone.id)
-        #expect(setRecord["modifiedAt"] as? Date == date)
+        #expect(setRecord.encryptedValues["modifiedAt"] as? Date == date)
         let set = try #require(ShortcutSync.shortcut(from: setRecord))
         #expect(set.name == "togglePlay")
         #expect(set.modifiedAt == date)
@@ -84,15 +84,40 @@ import Testing
 
         let disabledRecord = ShortcutSync.record(name: "togglePlay", state: .disabled, modifiedAt: date, base: setRecord)
         #expect(disabledRecord === setRecord)
-        #expect(disabledRecord["value"] == nil)
+        #expect(disabledRecord.encryptedValues["value"] == nil)
         let disabled = try #require(ShortcutSync.shortcut(from: disabledRecord))
         guard case .disabled = disabled.state else { Issue.record("expected .disabled"); return }
+    }
+
+    @Test func everyShortcutFieldIsEncrypted() {
+        let keys = ["state", "value", "modifiedAt"]
+        let record = ShortcutSync.record(name: "togglePlay", state: .set("{}"), modifiedAt: date, base: nil)
+        for field in keys {
+            #expect(record[field] == nil, "plain \(field)")
+            #expect(record.encryptedValues[field] != nil, "encrypted \(field)")
+        }
+        // A reused base with old plain fields keeps no plain copy.
+        let base = CKRecord(recordType: ShortcutSync.shortcutType,
+                            recordID: CKRecord.ID(recordName: "shortcut-togglePlay", zoneID: SyncZone.id))
+        for field in keys { base[field] = "old" as NSString }
+        let disabled = ShortcutSync.record(name: "togglePlay", state: .disabled, modifiedAt: date, base: base)
+        for field in keys {
+            #expect(disabled[field] == nil, "plain \(field)")
+        }
+        guard case .disabled? = ShortcutSync.shortcut(from: disabled)?.state else { Issue.record("expected .disabled"); return }
+    }
+
+    @Test func plainFieldsAreNotRead() {
+        let r = CKRecord(recordType: ShortcutSync.shortcutType, recordID: CKRecord.ID(recordName: "shortcut-x", zoneID: SyncZone.id))
+        r["state"] = "disabled" as NSString
+        r["modifiedAt"] = date as NSDate
+        #expect(ShortcutSync.shortcut(from: r) == nil)
     }
 
     @Test func malformedRecordGivesNil() {
         func record(_ fields: [String: CKRecordValue], name: String = "shortcut-x") -> CKRecord {
             let r = CKRecord(recordType: ShortcutSync.shortcutType, recordID: CKRecord.ID(recordName: name, zoneID: SyncZone.id))
-            for (k, v) in fields { r[k] = v }
+            for (k, v) in fields { r.encryptedValues[k] = v }
             return r
         }
         let ok: [String: CKRecordValue] = ["state": "set" as NSString, "value": "{}" as NSString, "modifiedAt": date as NSDate]

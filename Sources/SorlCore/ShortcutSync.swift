@@ -65,6 +65,7 @@ public enum ShortcutSync {
     }
 
     /// Writes the shortcut into `base` (keeping its change tag) or into a new record in `SyncZone.id`.
+    /// `state`, `value` and `modifiedAt` go in `encryptedValues`.
     public static func record(name rawValue: String, state: ShortcutState, modifiedAt: Date, base: CKRecord?) -> CKRecord {
         let record = base ?? CKRecord(
             recordType: shortcutType,
@@ -72,13 +73,13 @@ public enum ShortcutSync {
         )
         switch state {
         case .set(let json):
-            record["state"] = "set" as NSString
-            record["value"] = json as NSString
+            record.setEncrypted("state", "set")
+            record.setEncrypted("value", json)
         case .disabled:
-            record["state"] = "disabled" as NSString
-            record["value"] = nil
+            record.setEncrypted("state", "disabled")
+            record.setEncrypted("value", nil)
         }
-        record["modifiedAt"] = SyncDate.trunc(modifiedAt) as NSDate
+        record.setEncrypted("modifiedAt", SyncDate.trunc(modifiedAt))
         return record
     }
 
@@ -88,14 +89,15 @@ public enum ShortcutSync {
         let recordName = record.recordID.recordName
         guard recordName.hasPrefix(recordPrefix) else { return nil }
         let name = String(recordName.dropFirst(recordPrefix.count))
+        let values = record.encryptedValues
         guard !name.isEmpty,
-              let stateString = record["state"] as? String,
-              let modifiedAt = record["modifiedAt"] as? Date
+              let stateString = values["state"] as? String,
+              let modifiedAt = values["modifiedAt"] as? Date
         else { return nil }
         let state: ShortcutState
         switch stateString {
         case "set":
-            guard let json = record["value"] as? String else { return nil }
+            guard let json = values["value"] as? String else { return nil }
             state = .set(json)
         case "disabled":
             state = .disabled
