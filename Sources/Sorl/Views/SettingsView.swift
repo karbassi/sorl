@@ -124,12 +124,11 @@ struct SettingsView: View {
                 }
             }
         }
-        SettingsNote("Click a shortcut to change it. Media keys work too.")
+        SettingsNote("Click a shortcut to change it. Media keys play, pause and skip.")
     }
 
     static let hotkeys: [(label: String, name: KeyboardShortcuts.Name)] = [
-        ("Play or pause", .togglePlayPause), ("Next", .nextTrack), ("Previous", .previousTrack),
-        ("Change speed", .cycleSpeed), ("Show Sorl", .togglePanel),
+        ("Show Sorl", .togglePanel), ("Play or pause", .togglePlayPause), ("Change speed", .cycleSpeed),
     ]
 
     @ViewBuilder private var downloads: some View {
