@@ -194,6 +194,8 @@ final class CloudSync {
         guard ICloudEntitlement.hasCloudKit else { status = .unavailable; return }
         guard !settings.syncEnabled, !isStarting else { return }
         settings.syncEnabled = true
+        // Launch registers only when sync was already on; without this, pushes wait for the next relaunch.
+        NSApp.registerForRemoteNotifications()
         stampShortcutsForFirstEnable()
         // Everything goes in the journal now; it is queued once the key is known. If the account isn't available
         // yet, the same-user sign-in path picks it up from the journal.
