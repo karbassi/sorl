@@ -2,6 +2,10 @@
 
 Every PR merged into `main` is released automatically; `.github/workflows/auto-release.yml` adds its section here.
 
+## [v1.5.1](https://github.com/karbassi/sorl/releases/tag/v1.5.1) - 2026-11-27
+
+- Get other Macs' changes sooner right after turning on iCloud sync ([#28](https://github.com/karbassi/sorl/pull/28))
+
 ## [v1.5.0](https://github.com/karbassi/sorl/releases/tag/v1.5.0) - 2026-11-26
 
 - Sync Saved and keyboard shortcuts with iCloud ([#26](https://github.com/karbassi/sorl/pull/26))
