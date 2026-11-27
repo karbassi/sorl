@@ -7,6 +7,7 @@ final class StatusItemController: NSObject {
     private let engine: PlayerEngine
     private let panel: PanelController
     private let settings: AppSettings
+    private let updater: Updater
     private var scrollMonitor: Any?
     private var flashTask: Task<Void, Never>?
     private var flashText: String?
@@ -14,10 +15,11 @@ final class StatusItemController: NSObject {
     /// The playable link on the drag currently over the icon, if any.
     private var dragLink: MediaLink?
 
-    init(engine: PlayerEngine, panel: PanelController, settings: AppSettings) {
+    init(engine: PlayerEngine, panel: PanelController, settings: AppSettings, updater: Updater) {
         self.engine = engine
         self.panel = panel
         self.settings = settings
+        self.updater = updater
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         super.init()
         if let button = statusItem.button {
@@ -149,6 +151,12 @@ final class StatusItemController: NSObject {
         let settingsItem = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
         menu.addItem(settingsItem)
+        if updater.isAvailable {
+            let update = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
+            update.target = self
+            update.isEnabled = updater.canCheck
+            menu.addItem(update)
+        }
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit Sorl", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
 
@@ -162,6 +170,7 @@ final class StatusItemController: NSObject {
     @objc private func previousTrack() { engine.previous() }
     @objc private func openPanel() { panel.show() }
     @objc private func openSettings() { panel.show(settings: true) }
+    @objc private func checkForUpdates() { updater.checkNow() }
 
     private func observe() {
         withObservationTracking {

@@ -66,6 +66,12 @@ Research into how comparable menu bar apps handle Settings and Quit, and a propo
 │ Show the title in the menu bar     [ ◯]  │
 │ (if needed) Approve in System Settings…  │
 │                                          │
+│ Updates                                  │
+│ Check for updates automatically    [◉ ]  │
+│ Check for updates            Check now   │
+│ New versions come from GitHub. Sorl asks │
+│ before installing one.                   │
+│                                          │
 │ iCloud                                   │
 │ Sync Saved and shortcuts           [ ◯]  │
 │ Keeps Saved and your shortcuts the same  │
@@ -99,6 +105,8 @@ Research into how comparable menu bar apps handle Settings and Quit, and a propo
 ```
 
 **Styling:** 32pt rows on white, with sentence-case section headers styled like the drawer's. Switches and shortcut recorders are aligned right, and links use the accent color.
+
+**Updates:** Sparkle checks the appcast on the latest GitHub release once a day. When a check finds a newer version, the second row reads "Sorl 1.6.0 is available" and its button becomes "Install…", which opens Sparkle's window. In a build that can't update itself (no app bundle), the switch is disabled and the note reads "This copy of Sorl can't update itself. Install it from Homebrew or a release."
 
 **iCloud note:** one switch, "Sync Saved and shortcuts", then a note that follows the sync status. The switch is disabled when this copy can't use iCloud. The layout shows the off state; the other notes are:
 - Unavailable: "This copy of Sorl can't use iCloud. Install it from Homebrew or a release."

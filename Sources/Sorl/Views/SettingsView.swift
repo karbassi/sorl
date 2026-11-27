@@ -13,6 +13,7 @@ struct SettingsView: View {
     @Environment(PanelState.self) private var state
     @Environment(ToastCenter.self) private var toasts
     @Environment(CloudSync.self) private var cloudSync
+    @Environment(Updater.self) private var updater
     @State private var launchAtLogin = LaunchAtLogin.isEnabled
     @State private var loginRequiresApproval = LaunchAtLogin.status == .requiresApproval
     @State private var loginError: String?
@@ -43,6 +44,7 @@ struct SettingsView: View {
                                 .padding(.bottom, 4)
                         }
                         general
+                        updates
                         iCloud
                         shortcuts
                         downloads
@@ -113,6 +115,33 @@ struct SettingsView: View {
         } else if !LaunchAtLogin.isAvailable {
             SettingsNote("Open at login works once the app is installed (mise run install).")
         }
+    }
+
+    @ViewBuilder private var updates: some View {
+        @Bindable var updater = updater
+        SettingsSectionHeader("Updates")
+        SettingsGroup {
+            SettingsRow {
+                Text("Check for updates automatically")
+                Spacer(minLength: 10)
+                SettingsSwitch(label: "Check for updates automatically", isOn: Binding(
+                    get: { updater.isAvailable && updater.automaticallyChecks },
+                    set: { updater.automaticallyChecks = $0 }
+                ))
+                .disabled(!updater.isAvailable)
+            }
+            SettingsRow(divider: true) {
+                Text(updater.availableVersion.map { "Sorl \($0) is available" } ?? "Check for updates")
+                Spacer(minLength: 10)
+                TextButton(title: updater.availableVersion == nil ? "Check now" : "Install…",
+                           help: "Check for a new version of Sorl") { updater.checkNow() }
+                    .disabled(!updater.canCheck)
+                    .opacity(updater.canCheck ? 1 : 0.4)
+            }
+        }
+        SettingsNote(updater.isAvailable
+            ? "New versions come from GitHub. Sorl asks before installing one."
+            : "This copy of Sorl can't update itself. Install it from Homebrew or a release.")
     }
 
     @ViewBuilder private var iCloud: some View {

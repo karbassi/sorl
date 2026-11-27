@@ -49,5 +49,15 @@
 	<string>© 2026 João Veríssimo. MIT License.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>SUFeedURL</key>
+	<string>https://github.com/karbassi/sorl/releases/latest/download/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>S8QOpmgVoBx9A4fT5eN5MlguWei9RejztrpwsLt3BWQ=</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SURequireSignedFeed</key>
+	<true/>
+	<key>SUVerifyUpdateBeforeExtraction</key>
+	<true/>
 </dict>
 </plist>

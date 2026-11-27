@@ -154,7 +154,7 @@ final class PanelController {
     /// The page slide's curve. The window's shrink follows it too, so its bottom edge moves with the sheet.
     static let pageSpring = Spring.snappy(duration: pageTransition)
 
-    init(settings: AppSettings, engine: PlayerEngine, service: YTDLPService, cloudSync: CloudSync) {
+    init(settings: AppSettings, engine: PlayerEngine, service: YTDLPService, cloudSync: CloudSync, updater: Updater) {
         self.settings = settings
         self.engine = engine
         self.cloudSync = cloudSync
@@ -180,7 +180,7 @@ final class PanelController {
         panel.animationBehavior = .none
         panel.titleVisibility = .hidden
 
-        hosting = NSHostingView(rootView: PanelRoot(engine: engine, settings: settings, service: service, state: state, cloudSync: cloudSync))
+        hosting = NSHostingView(rootView: PanelRoot(engine: engine, settings: settings, service: service, state: state, cloudSync: cloudSync, updater: updater))
         hosting.sizingOptions = []
         state.controller = self
         rebuildBackdrop()
