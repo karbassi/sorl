@@ -53,6 +53,8 @@ Say it as one syllable, like "soar" with an L on the end: sorl /soːɭ/. It's Sw
 brew install --cask karbassi/tap/sorl
 ```
 
+Sorl updates itself: it checks GitHub for a new release once a day and asks before installing it. Turn that off, or check now, in Settings → Updates.
+
 ### Coming from Undertone
 
 On first launch Sorl moves your Undertone data over: Up next, Saved, Recent, playback positions, speed, hotkeys and the downloaded audio. It runs once and never overwrites anything Sorl already has. Launch at login doesn't carry over, so turn it on again in Settings. Then remove the old app with `brew uninstall --cask undertone`.
@@ -111,6 +113,8 @@ Run `mise trust` after creating it. To build ad hoc again without deleting it, r
 
 Dev builds use the CloudKit Development environment and releases use Production, so the two never share data. What a dev build syncs won't show up in a release build, and the other way round.
 
+Releases also carry `appcast.xml`, the feed the in-app updater reads. `release.yml` signs the zip and the feed with the Sparkle EdDSA key (GitHub secret `SPARKLE_ED_PRIVATE_KEY`); the public half is `SUPublicEDKey` in `Resources/Info.plist`. The updater refuses an update or feed that isn't signed with that key. Sparkle's version is pinned in `Package.swift` and in `release.yml`'s "Write appcast" step; change both together.
+
 The first release signed with Developer ID may ask you to approve **Open at login** again, since macOS sees a new signature. Turn it back on in Settings if it's off.
 
 ## Using it
@@ -132,6 +136,7 @@ sorl://volume?value=0.5      sorl://mute          sorl://repeat?mode=one
 sorl://open                  sorl://settings      sorl://close         sorl://quit
 sorl://drawer?tab=saved      sorl://save          (toggle the playing track in Saved)
 sorl://sync                  (sync with iCloud now)
+sorl://update                (check for a new version now)
 ```
 
 Saved holds up to 500 links on each Mac. iCloud can hold more, so one Mac may show fewer than another.

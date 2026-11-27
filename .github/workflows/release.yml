@@ -33,6 +33,8 @@ on:
         required: false
       SIGNING_KEYCHAIN_PASSWORD:
         required: false
+      SPARKLE_ED_PRIVATE_KEY:
+        required: false
   workflow_dispatch:
     inputs:
       tag:
@@ -153,21 +155,71 @@ jobs:
           # Informational only: runners may have Gatekeeper off.
           spctl -a -t exec -vv build/Sorl.app || true
 
+      # The in-app updater reads appcast.xml from the latest release. Both the stapled zip and the feed are signed
+      # with the Sparkle EdDSA key (Info.plist's SUPublicEDKey), so a tampered download or feed is refused.
+      - name: Write appcast
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SPARKLE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+        run: |
+          # Keep in step with the Sparkle version in Package.swift.
+          sparkle_version=2.10.1
+          sparkle_sha256=1a856d2a9edb8e628de88121d7be04cf0e2167f8641650b78fca00b14244cf27
+          curl -fsSL -o "$RUNNER_TEMP/sparkle.tar.xz" \
+            "https://github.com/sparkle-project/Sparkle/releases/download/$sparkle_version/Sparkle-$sparkle_version.tar.xz"
+          echo "$sparkle_sha256  $RUNNER_TEMP/sparkle.tar.xz" | shasum -a 256 -c -
+          mkdir -p "$RUNNER_TEMP/sparkle"
+          tar -xf "$RUNNER_TEMP/sparkle.tar.xz" -C "$RUNNER_TEMP/sparkle"
+          # The key goes in on stdin, never as an argument.
+          sign() { printf '%s' "$SPARKLE_KEY" | "$RUNNER_TEMP/sparkle/bin/sign_update" --ed-key-file - "$@"; }
+
+          # The same notes go in the feed and on the release page.
+          gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f tag_name="$TAG" --jq .body > "$RUNNER_TEMP/notes.md"
+
+          enclosure=$(sign Sorl.zip)   # sparkle:edSignature="…" length="…"
+          plist=build/Sorl.app/Contents/Info.plist
+          build=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")
+          short=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")
+          min_os=$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$plist")
+          {
+            echo '<?xml version="1.0" encoding="utf-8"?>'
+            echo '<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">'
+            echo '  <channel>'
+            echo '    <title>Sorl</title>'
+            echo '    <item>'
+            echo "      <title>$TAG</title>"
+            echo "      <pubDate>$(LC_ALL=C date -u '+%a, %d %b %Y %H:%M:%S +0000')</pubDate>"
+            echo "      <sparkle:version>$build</sparkle:version>"
+            echo "      <sparkle:shortVersionString>$short</sparkle:shortVersionString>"
+            echo "      <sparkle:minimumSystemVersion>$min_os</sparkle:minimumSystemVersion>"
+            echo "      <sparkle:fullReleaseNotesLink>https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG</sparkle:fullReleaseNotesLink>"
+            echo '      <description sparkle:format="markdown"><![CDATA['
+            sed 's/]]>/]] >/g' "$RUNNER_TEMP/notes.md"
+            echo '      ]]></description>'
+            echo "      <enclosure url=\"https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/Sorl.zip\" type=\"application/octet-stream\" $enclosure/>"
+            echo '    </item>'
+            echo '  </channel>'
+            echo '</rss>'
+          } > appcast.xml
+          sign appcast.xml --disable-signing-warning   # embeds the feed signature (SURequireSignedFeed)
+          xmllint --noout appcast.xml
+          cat appcast.xml
+
       - name: Create release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # A rerun (e.g. after a failed tap dispatch) replaces the asset instead of failing.
+          # A rerun (e.g. after a failed tap dispatch) replaces the assets instead of failing.
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" Sorl.zip --clobber
+            gh release upload "$TAG" Sorl.zip appcast.xml --clobber
             exit 0
           fi
           prerelease=""
           case "$TAG" in *-*) prerelease="--prerelease" ;; esac
-          gh release create "$TAG" Sorl.zip \
+          gh release create "$TAG" Sorl.zip appcast.xml \
             --verify-tag \
             --title "$TAG" \
-            --generate-notes \
+            --notes-file "$RUNNER_TEMP/notes.md" \
             $prerelease
 
       # Stable releases only: the tap reads releases/latest, which skips prereleases.

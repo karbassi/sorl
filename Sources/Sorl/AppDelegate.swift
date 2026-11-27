@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panel: PanelController!
     private var statusItem: StatusItemController!
     private var cloudSync: CloudSync!
+    private var updater: Updater!
     private var shortcutObserver: NSObjectProtocol?
     private let log = Logger(subsystem: "com.karbassi.sorl", category: "app")
 
@@ -46,8 +47,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         engine = PlayerEngine(settings: settings, service: service)
         nowPlaying = NowPlayingBridge(engine: engine)
         outputDevice = OutputDeviceWatcher(engine: engine)
-        panel = PanelController(settings: settings, engine: engine, service: service, cloudSync: cloudSync)
-        statusItem = StatusItemController(engine: engine, panel: panel, settings: settings)
+        updater = Updater()
+        panel = PanelController(settings: settings, engine: engine, service: service, cloudSync: cloudSync, updater: updater)
+        statusItem = StatusItemController(engine: engine, panel: panel, settings: settings, updater: updater)
         Hotkeys.install(engine: engine, panel: panel)
         service.start()
         if settings.syncEnabled { Task { await cloudSync.start() } }
@@ -66,7 +68,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// `sorl://play?url=…` `add?url=…&mode=next|end` `clear` `drawer?tab=saved` `play` `pause` `toggle` `next` `previous` `seek?to=90` `speed?value=2`
-    /// `volume?value=0.5` `mute` `repeat?mode=one` `save` `sync` `open` `settings` `close` `quit`
+    /// `volume?value=0.5` `mute` `repeat?mode=one` `save` `sync` `update` `open` `settings` `close` `quit`
     func application(_ application: NSApplication, open urls: [URL]) {
         guard isReady else {
             pendingURLs.append(contentsOf: urls)
@@ -122,6 +124,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         case "save": engine.toggleSavedTrack()
         case "sync": cloudSync.syncNow()
+        case "update": updater.checkNow()
         case "demo": showDemo(query)
         case "drawer":
             let raw = query.first(where: { $0.name == "tab" })?.value ?? PanelState.Tab.upNext.rawValue

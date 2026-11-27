@@ -44,6 +44,8 @@ mkdir -p "$OUT/Contents/MacOS" "$OUT/Contents/Resources"
 # (the real install lives in /Applications). Harmless marker file Spotlight honours.
 touch build/.metadata_never_index
 cp "$BIN" "$OUT/Contents/MacOS/$APP"
+# Sparkle (in-app updates) lives in Contents/Frameworks; SwiftPM only adds @loader_path to the rpaths.
+install_name_tool -add_rpath "@executable_path/../Frameworks" "$OUT/Contents/MacOS/$APP"
 # The app deploys to macOS 15, and some SwiftPM builds then record 15.0 as the linked SDK too. AppKit keys the
 # Liquid Glass control styles on the linked SDK, so a 15.0 stamp would give the old look on macOS 26.
 # Record the SDK the build actually compiled against.
@@ -61,17 +63,32 @@ cp -R Resources/MenuBar "$OUT/Contents/Resources/MenuBar"
 for bundle in "$(dirname "$BIN")"/*.bundle; do
   [ -d "$bundle" ] && cp -R "$bundle" "$OUT/Contents/Resources/"
 done
+mkdir -p "$OUT/Contents/Frameworks"
+SPARKLE="$OUT/Contents/Frameworks/Sparkle.framework"
+ditto "$(dirname "$BIN")/Sparkle.framework" "$SPARKLE"
+# The XPC services are only for sandboxed apps, and Sorl isn't sandboxed (it runs yt-dlp).
+rm -rf "$SPARKLE/XPCServices" "$SPARKLE/Versions/B/XPCServices"
+
+# Signs Sparkle's helpers inside-out, then the framework, with the same identity as the app. Sparkle ships signed
+# by its own team, which the hardened runtime's library validation would refuse to load.
+sign_sparkle() {
+  for item in "$SPARKLE/Versions/B/Autoupdate" "$SPARKLE/Versions/B/Updater.app" "$SPARKLE"; do
+    codesign --force "$@" "$item"
+  done
+}
 
 # Sign last: the signature seals Info.plist.
 if [ -z "$DEV_SIGN" ]; then
   # Ad-hoc identity ("-") is enough for a locally built app.
+  sign_sparkle --sign -
   codesign --force --sign - --identifier "$BUNDLE_ID" "$OUT"
 else
   echo "▸ signing (CloudKit $SORL_CK_ENV)"
   cp "$SORL_PROFILE" "$OUT/Contents/embedded.provisionprofile"
   sed -e "s/__TEAM_ID__/$SORL_TEAM_ID/g" -e "s/__CK_ENV__/$SORL_CK_ENV/g" -e "s/__APS_ENV__/$APS_ENV/g" \
     Resources/Sorl.entitlements > build/Sorl.entitlements
-  # No --deep: the only nested bundle (KeyboardShortcuts' resources) holds no code.
+  sign_sparkle --options runtime --timestamp --sign "$SORL_SIGN_IDENTITY" ${SORL_KEYCHAIN:+--keychain "$SORL_KEYCHAIN"}
+  # No --deep: Sparkle is signed above, and KeyboardShortcuts' resource bundle holds no code.
   codesign --force --options runtime --timestamp --entitlements build/Sorl.entitlements \
     --sign "$SORL_SIGN_IDENTITY" ${SORL_KEYCHAIN:+--keychain "$SORL_KEYCHAIN"} "$OUT"
   codesign --verify --strict --verbose=2 "$OUT"

@@ -23,6 +23,8 @@ let package = Package(
     dependencies: [
         // Vendored + minimally patched so it builds with the Command Line Tools alone (see Vendor/README.md).
         .package(path: "Vendor/KeyboardShortcuts"),
+        // In-app updates. A prebuilt binary framework, so it needs no Xcode; scripts/bundle.sh embeds and re-signs it.
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.1"),
     ],
     targets: [
         // Pure-Swift core: link parsing, yt-dlp models/client, queue, formatting. No AppKit, unit-tested.
@@ -41,6 +43,7 @@ let package = Package(
             dependencies: [
                 "SorlCore",
                 .product(name: "KeyboardShortcuts", package: "KeyboardShortcuts"),
+                .product(name: "Sparkle", package: "Sparkle"),
             ],
             swiftSettings: [
                 .defaultIsolation(MainActor.self),
